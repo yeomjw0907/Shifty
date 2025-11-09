@@ -366,7 +366,7 @@ initializeTables();
 initializeStorageBuckets();
 
 // Health check
-app.get("/make-server-3afd3c70/health", (c) => {
+app.get("/health", (c) => {
   return c.json({
     status: "ok",
     service: "Shifty API",
@@ -1668,7 +1668,7 @@ app.delete(
 // ======================
 
 // Search hospitals (공개 API - 인증 불필요)
-app.get("/make-server-3afd3c70/hospitals/search", async (c) => {
+app.get("/hospitals/search", async (c) => {
   try {
     const query = c.req.query("q") || "";
     const limit = parseInt(c.req.query("limit") || "10", 10);
@@ -3957,4 +3957,23 @@ app.post("/make-server-3afd3c70/upload-avatar", async (c) => {
 });
 
 // Start server
-Deno.serve(app.fetch);
+// Supabase Edge Function의 기본 JWT 인증을 우회하기 위해 커스텀 핸들러 사용
+Deno.serve(async (req) => {
+  // 공개 API 경로는 JWT 인증 없이 처리
+  const url = new URL(req.url);
+  const pathname = url.pathname;
+  
+  // 공개 API 경로 목록
+  const publicPaths = [
+    '/hospitals/search',
+    '/health',
+  ];
+  
+  // 공개 경로인 경우 바로 Hono 앱으로 전달
+  if (publicPaths.some(path => pathname.includes(path))) {
+    return app.fetch(req);
+  }
+  
+  // 그 외 경로는 기본 처리 (Supabase가 JWT 검증)
+  return app.fetch(req);
+});

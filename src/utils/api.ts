@@ -441,7 +441,7 @@ export async function searchHospitals(
       params.append('city', city);
     }
 
-    // Server endpoint uses /make-server-3afd3c70/hospitals/search
+    // Server endpoint uses /hospitals/search (function name is in the base URL)
     const hospitalApiBase = API_BASE.replace('/server', '/make-server-3afd3c70');
     const url = `${hospitalApiBase}/hospitals/search?${params.toString()}`;
     console.log('🌐 API 호출:', url);
