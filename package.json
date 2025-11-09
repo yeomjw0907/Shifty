@@ -50,7 +50,8 @@
           "sonner": "^2.0.3",
           "tailwind-merge": "*",
           "tesseract.js": "*",
-          "vaul": "^1.1.2"
+          "vaul": "^1.1.2",
+          "xlsx": "^0.18.5"
       },
       "devDependencies": {
           "@types/node": "^20.10.0",
@@ -59,6 +60,7 @@
       },
       "scripts": {
           "dev": "vite",
-          "build": "vite build"
+          "build": "vite build",
+          "import-hospitals": "node scripts/import-hospitals-from-excel.js"
       }
   }

@@ -81,12 +81,14 @@ CREATE TRIGGER update_fcm_tokens_updated_at
 -- notifications: 사용자는 자신의 알림만 조회/수정 가능
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "notifications_select_own" ON notifications;
 CREATE POLICY "notifications_select_own" ON notifications
   FOR SELECT
   USING (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "notifications_insert_own" ON notifications;
 CREATE POLICY "notifications_insert_own" ON notifications
   FOR INSERT
   WITH CHECK (
@@ -98,6 +100,7 @@ CREATE POLICY "notifications_insert_own" ON notifications
     )
   );
 
+DROP POLICY IF EXISTS "notifications_update_own" ON notifications;
 CREATE POLICY "notifications_update_own" ON notifications
   FOR UPDATE
   USING (
@@ -107,18 +110,21 @@ CREATE POLICY "notifications_update_own" ON notifications
 -- notification_settings: 사용자는 자신의 설정만 조회/수정 가능
 ALTER TABLE notification_settings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "notification_settings_select_own" ON notification_settings;
 CREATE POLICY "notification_settings_select_own" ON notification_settings
   FOR SELECT
   USING (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "notification_settings_insert_own" ON notification_settings;
 CREATE POLICY "notification_settings_insert_own" ON notification_settings
   FOR INSERT
   WITH CHECK (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "notification_settings_update_own" ON notification_settings;
 CREATE POLICY "notification_settings_update_own" ON notification_settings
   FOR UPDATE
   USING (
@@ -128,24 +134,28 @@ CREATE POLICY "notification_settings_update_own" ON notification_settings
 -- fcm_tokens: 사용자는 자신의 토큰만 조회/수정 가능
 ALTER TABLE fcm_tokens ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "fcm_tokens_select_own" ON fcm_tokens;
 CREATE POLICY "fcm_tokens_select_own" ON fcm_tokens
   FOR SELECT
   USING (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "fcm_tokens_insert_own" ON fcm_tokens;
 CREATE POLICY "fcm_tokens_insert_own" ON fcm_tokens
   FOR INSERT
   WITH CHECK (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "fcm_tokens_update_own" ON fcm_tokens;
 CREATE POLICY "fcm_tokens_update_own" ON fcm_tokens
   FOR UPDATE
   USING (
     user_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "fcm_tokens_delete_own" ON fcm_tokens;
 CREATE POLICY "fcm_tokens_delete_own" ON fcm_tokens
   FOR DELETE
   USING (

@@ -15,6 +15,11 @@ ALTER TABLE privacy_consents ENABLE ROW LEVEL SECURITY;
 -- 2단계: USERS 테이블 정책
 -- ============================================
 
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Users can view own profile" ON users;
+DROP POLICY IF EXISTS "Users can update own profile" ON users;
+DROP POLICY IF EXISTS "Team members can view each other" ON users;
+
 -- 자기 자신의 프로필은 읽기 가능
 CREATE POLICY "Users can view own profile"
   ON users FOR SELECT
@@ -43,6 +48,11 @@ CREATE POLICY "Team members can view each other"
 -- ============================================
 -- 3단계: TEAMS 테이블 정책
 -- ============================================
+
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Team members can view their teams" ON teams;
+DROP POLICY IF EXISTS "Team owners can update their teams" ON teams;
+DROP POLICY IF EXISTS "Team owners can delete their teams" ON teams;
 
 -- 팀 멤버는 자신의 팀 조회 가능
 CREATE POLICY "Team members can view their teams"
@@ -73,6 +83,10 @@ CREATE POLICY "Team owners can delete their teams"
 -- 4단계: TEAM_MEMBERS 테이블 정책
 -- ============================================
 
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Team members can view team members" ON team_members;
+DROP POLICY IF EXISTS "Team owners can manage members" ON team_members;
+
 -- 팀 멤버는 같은 팀의 멤버 목록 조회 가능
 CREATE POLICY "Team members can view team members"
   ON team_members FOR SELECT
@@ -97,6 +111,12 @@ CREATE POLICY "Team owners can manage members"
 -- ============================================
 -- 5단계: TASKS 테이블 정책
 -- ============================================
+
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Team members can view team tasks" ON tasks;
+DROP POLICY IF EXISTS "Team members can create tasks" ON tasks;
+DROP POLICY IF EXISTS "Task owners or team owners can update tasks" ON tasks;
+DROP POLICY IF EXISTS "Task owners or team owners can delete tasks" ON tasks;
 
 -- 팀 멤버는 팀 일정 조회 가능
 CREATE POLICY "Team members can view team tasks"
@@ -147,6 +167,9 @@ CREATE POLICY "Task owners or team owners can delete tasks"
 -- ============================================
 -- 6단계: PRIVACY_CONSENTS 테이블 정책
 -- ============================================
+
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Users can view own consents" ON privacy_consents;
 
 -- 자신의 동의 기록만 조회 가능
 CREATE POLICY "Users can view own consents"

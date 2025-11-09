@@ -241,7 +241,7 @@ async function initializeTables() {
       CREATE INDEX IF NOT EXISTS idx_hospitals_city ON hospitals(city);
       CREATE INDEX IF NOT EXISTS idx_hospitals_district ON hospitals(district);
       CREATE INDEX IF NOT EXISTS idx_hospitals_type ON hospitals(type);
-      CREATE INDEX IF NOT EXISTS idx_hospitals_search ON hospitals USING gin(to_tsvector('korean', COALESCE(name_kr, name)));
+      CREATE INDEX IF NOT EXISTS idx_hospitals_search ON hospitals USING gin(to_tsvector('simple', COALESCE(name_kr, name)));
 
       -- 7. Auto-update trigger function
       CREATE OR REPLACE FUNCTION update_updated_at_column()

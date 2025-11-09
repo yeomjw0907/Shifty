@@ -80,6 +80,7 @@ CREATE TRIGGER update_hospital_settings_updated_at
 -- hospital_admins: 자신이 관리자인지 확인 가능, 같은 병원 관리자는 조회 가능
 ALTER TABLE hospital_admins ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "hospital_admins_select_policy" ON hospital_admins;
 CREATE POLICY "hospital_admins_select_policy" ON hospital_admins
   FOR SELECT
   USING (
@@ -92,6 +93,7 @@ CREATE POLICY "hospital_admins_select_policy" ON hospital_admins
     )
   );
 
+DROP POLICY IF EXISTS "hospital_admins_insert_policy" ON hospital_admins;
 CREATE POLICY "hospital_admins_insert_policy" ON hospital_admins
   FOR INSERT
   WITH CHECK (
@@ -106,6 +108,7 @@ CREATE POLICY "hospital_admins_insert_policy" ON hospital_admins
 -- community_reports: 자신이 신고한 내역 조회 가능, 관리자는 모든 신고 조회 가능
 ALTER TABLE community_reports ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "community_reports_select_policy" ON community_reports;
 CREATE POLICY "community_reports_select_policy" ON community_reports
   FOR SELECT
   USING (
@@ -122,12 +125,14 @@ CREATE POLICY "community_reports_select_policy" ON community_reports
     )
   );
 
+DROP POLICY IF EXISTS "community_reports_insert_policy" ON community_reports;
 CREATE POLICY "community_reports_insert_policy" ON community_reports
   FOR INSERT
   WITH CHECK (
     reporter_id = (SELECT id FROM users WHERE auth_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "community_reports_update_policy" ON community_reports;
 CREATE POLICY "community_reports_update_policy" ON community_reports
   FOR UPDATE
   USING (
@@ -146,6 +151,7 @@ CREATE POLICY "community_reports_update_policy" ON community_reports
 -- hospital_settings: 같은 병원 사용자는 읽기 가능, 관리자만 수정 가능
 ALTER TABLE hospital_settings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "hospital_settings_select_policy" ON hospital_settings;
 CREATE POLICY "hospital_settings_select_policy" ON hospital_settings
   FOR SELECT
   USING (
@@ -155,6 +161,7 @@ CREATE POLICY "hospital_settings_select_policy" ON hospital_settings
     )
   );
 
+DROP POLICY IF EXISTS "hospital_settings_update_policy" ON hospital_settings;
 CREATE POLICY "hospital_settings_update_policy" ON hospital_settings
   FOR UPDATE
   USING (

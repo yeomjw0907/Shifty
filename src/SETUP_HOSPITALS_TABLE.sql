@@ -36,7 +36,9 @@ CREATE INDEX IF NOT EXISTS idx_hospitals_district ON hospitals(district);
 CREATE INDEX IF NOT EXISTS idx_hospitals_type ON hospitals(type);
 
 -- Full-text search 인덱스 (한글 검색 최적화)
-CREATE INDEX IF NOT EXISTS idx_hospitals_search ON hospitals USING gin(to_tsvector('korean', COALESCE(name_kr, name)));
+-- Note: 'korean' 텍스트 검색 설정이 없을 수 있으므로 'simple' 사용
+-- 한글 검색은 ILIKE를 사용하는 것이 더 효과적일 수 있습니다
+CREATE INDEX IF NOT EXISTS idx_hospitals_search ON hospitals USING gin(to_tsvector('simple', COALESCE(name_kr, name)));
 
 -- 자동 업데이트 트리거
 DROP TRIGGER IF EXISTS update_hospitals_updated_at ON hospitals;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Building2, Search, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Building2, Search, CheckCircle2, AlertCircle, X, Edit3, Info } from 'lucide-react';
 import { searchHospitals, type Hospital } from '../utils/api';
 
 interface HospitalSearchInputProps {
@@ -32,6 +32,8 @@ export function HospitalSearchInput({
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null);
+  const [isManualMode, setIsManualMode] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +51,7 @@ export function HospitalSearchInput({
     }
 
     setIsSearching(true);
+    setHasSearched(false);
     searchTimeoutRef.current = setTimeout(async () => {
       const { data, error } = await searchHospitals(searchQuery, 10);
       
@@ -60,6 +63,7 @@ export function HospitalSearchInput({
         setIsOpen(true);
       }
       setIsSearching(false);
+      setHasSearched(true);
     }, 300);
 
     return () => {
@@ -88,10 +92,17 @@ export function HospitalSearchInput({
     setSelectedHospital(null);
     setSelectedIndex(-1);
     
+    // 직접 입력 모드에서는 검색 결과를 표시하지 않음
+    if (isManualMode) {
+      setIsOpen(false);
+      return;
+    }
+    
     if (newValue.trim().length >= 2) {
       setIsOpen(true);
     } else {
       setIsOpen(false);
+      setHasSearched(false);
     }
   };
 
@@ -110,6 +121,15 @@ export function HospitalSearchInput({
     setSelectedHospital(null);
     setHospitals([]);
     setIsOpen(false);
+    setIsManualMode(false);
+    setHasSearched(false);
+    inputRef.current?.focus();
+  };
+
+  const handleEnableManualMode = () => {
+    setIsManualMode(true);
+    setIsOpen(false);
+    setHospitals([]);
     inputRef.current?.focus();
   };
 
@@ -247,7 +267,7 @@ export function HospitalSearchInput({
 
         {/* Dropdown */}
         <AnimatePresence>
-          {isOpen && hospitals.length > 0 && (
+          {isOpen && !isManualMode && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -255,50 +275,83 @@ export function HospitalSearchInput({
               transition={{ duration: 0.2 }}
               className="absolute top-full left-0 right-0 mt-2 glass-card rounded-2xl p-2 toss-shadow z-50 max-h-64 overflow-y-auto scrollbar-hide"
             >
-              {hospitals.map((hospital, index) => {
-                const displayName = hospital.name_kr || hospital.name;
-                const isSelected = selectedIndex === index;
-                
-                return (
-                  <motion.button
-                    key={hospital.id}
-                    whileHover={{ scale: 1.02, x: 4 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => handleSelectHospital(hospital)}
-                    className={`
-                      w-full text-left px-4 py-3 rounded-xl transition-all mb-1
-                      ${isSelected 
-                        ? 'bg-blue-50 border-2 border-blue-200' 
-                        : 'hover:bg-slate-50 border-2 border-transparent'
-                      }
-                    `}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Building2 
-                        size={18} 
-                        className={`flex-shrink-0 ${
-                          isSelected ? 'text-blue-600' : 'text-slate-400'
-                        }`} 
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className={`font-medium truncate ${
-                          isSelected ? 'text-blue-900' : 'text-slate-900'
-                        }`}>
-                          {displayName}
-                        </div>
-                        {(hospital.city || hospital.type) && (
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            {[hospital.city, hospital.district, hospital.type].filter(Boolean).join(' · ')}
+              {hospitals.length > 0 ? (
+                hospitals.map((hospital, index) => {
+                  const displayName = hospital.name_kr || hospital.name;
+                  const isSelected = selectedIndex === index;
+                  
+                  return (
+                    <motion.button
+                      key={hospital.id}
+                      whileHover={{ scale: 1.02, x: 4 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleSelectHospital(hospital)}
+                      className={`
+                        w-full text-left px-4 py-3 rounded-xl transition-all mb-1
+                        ${isSelected 
+                          ? 'bg-blue-50 border-2 border-blue-200' 
+                          : 'hover:bg-slate-50 border-2 border-transparent'
+                        }
+                      `}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Building2 
+                          size={18} 
+                          className={`flex-shrink-0 ${
+                            isSelected ? 'text-blue-600' : 'text-slate-400'
+                          }`} 
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-medium truncate ${
+                            isSelected ? 'text-blue-900' : 'text-slate-900'
+                          }`}>
+                            {displayName}
                           </div>
+                          {(hospital.city || hospital.type) && (
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {[hospital.city, hospital.district, hospital.type].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                        {selectedHospital?.id === hospital.id && (
+                          <CheckCircle2 size={16} className="text-blue-600 flex-shrink-0" />
                         )}
                       </div>
-                      {selectedHospital?.id === hospital.id && (
-                        <CheckCircle2 size={16} className="text-blue-600 flex-shrink-0" />
-                      )}
+                    </motion.button>
+                  );
+                })
+              ) : (
+                // 검색 결과가 없을 때 직접 입력 옵션 표시
+                hasSearched && !isSearching && searchQuery.trim().length >= 2 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="px-4 py-3"
+                  >
+                    <div className="flex items-start gap-3 mb-3">
+                      <Info size={18} className="text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm text-slate-600 mb-2">
+                          검색 결과가 없습니다.
+                        </p>
+                        <p className="text-xs text-slate-500 mb-3">
+                          병원이 없으실 경우 직접 입력해주세요.
+                        </p>
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={handleEnableManualMode}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors text-sm font-medium"
+                        >
+                          <Edit3 size={16} />
+                          직접 입력하기
+                        </motion.button>
+                      </div>
                     </div>
-                  </motion.button>
-                );
-              })}
+                  </motion.div>
+                )
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -319,7 +372,7 @@ export function HospitalSearchInput({
             <span className="text-sm text-red-600">{error}</span>
           </motion.div>
         )}
-        {helperText && !hasError && (
+        {helperText && !hasError && !isManualMode && (
           <motion.p
             key="helper-text"
             initial={{ opacity: 0, y: -5 }}
@@ -330,6 +383,19 @@ export function HospitalSearchInput({
           >
             {helperText}
           </motion.p>
+        )}
+        {isManualMode && !hasError && (
+          <motion.div
+            key="manual-mode-hint"
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center gap-1.5 mt-2 ml-1"
+          >
+            <Info size={14} className="text-blue-500 flex-shrink-0" />
+            <span className="text-sm text-blue-600">직접 입력 모드입니다. 병원명을 자유롭게 입력해주세요.</span>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
