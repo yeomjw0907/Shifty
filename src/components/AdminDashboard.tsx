@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Bell, Utensils, FileText, Settings, Shield, Users, BarChart3,
-  Plus, Edit2, Trash2, Save, X, Calendar, Clock, Eye, Heart, MessageCircle
+  Plus, Edit2, Trash2, Save, X, Calendar, Clock, Eye, Heart, MessageCircle,
+  Search, User, Building2, Mail, Phone, MapPin, Briefcase, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from './ui/card';
@@ -13,6 +14,19 @@ import { FADE_IN, SCALE_IN } from '../utils/constants';
 import { formatTimestamp } from '../utils/helpers';
 import type { TeamMember } from '../App';
 import * as api from '../utils/api';
+import { UserManagementView } from './UserManagementView';
+
+interface AdminPost {
+  id: string;
+  title: string;
+  content: string;
+  postType: 'notice' | 'menu';
+  createdAt: Date;
+  updatedAt: Date;
+  viewCount: number;
+  likeCount: number;
+  commentCount: number;
+}
 
 interface AdminDashboardProps {
   currentUser: TeamMember;
@@ -26,7 +40,7 @@ export function AdminDashboard({
   currentHospitalId,
   accessToken
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'notice' | 'menu' | 'settings'>('notice');
+  const [activeTab, setActiveTab] = useState<'notice' | 'menu' | 'settings' | 'users'>('notice');
   const [posts, setPosts] = useState<AdminPost[]>([]);
   const [loading, setLoading] = useState(false);
   
@@ -213,6 +227,26 @@ export function AdminDashboard({
           </span>
         </button>
         <button
+          onClick={() => setActiveTab('users')}
+          className={`relative px-6 py-3 rounded-xl transition-all flex-1 ${
+            activeTab === 'users'
+              ? 'text-blue-600'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          {activeTab === 'users' && (
+            <motion.div
+              layoutId="adminActiveTab"
+              className="absolute inset-0 bg-white rounded-xl toss-shadow"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="relative flex flex-col items-center gap-1">
+            <Users size={20} />
+            <span className="text-xs">사용자 관리</span>
+          </span>
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`relative px-6 py-3 rounded-xl transition-all flex-1 ${
             activeTab === 'settings'
@@ -236,7 +270,7 @@ export function AdminDashboard({
 
       {/* Content */}
       <AnimatePresence mode="wait">
-        {activeTab === 'notice' && (
+        {activeTab === 'notice' ? (
           <motion.div
             key="notice"
             initial={{ opacity: 0, y: 20 }}
@@ -330,7 +364,7 @@ export function AdminDashboard({
               </div>
             )}
           </motion.div>
-        ) : activeTab === 'menu' && (
+        ) : activeTab === 'menu' ? (
           <motion.div
             key="menu"
             initial={{ opacity: 0, y: 20 }}
@@ -418,7 +452,16 @@ export function AdminDashboard({
               </div>
             )}
           </motion.div>
-        ) : (
+        ) : activeTab === 'users' ? (
+          <motion.div
+            key="users"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <UserManagementView accessToken={accessToken} />
+          </motion.div>
+        ) : activeTab === 'settings' ? (
           <motion.div
             key="settings"
             initial={{ opacity: 0, y: 20 }}
@@ -431,7 +474,7 @@ export function AdminDashboard({
               <p className="text-slate-600">설정 기능은 추후 구현 예정입니다.</p>
             </Card>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {/* New/Edit Post Dialog */}

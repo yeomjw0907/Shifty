@@ -24,7 +24,7 @@ const supabase = createClient(
 );
 
 // Admin emails (화이트리스트)
-const ADMIN_EMAILS = ["admin@shifty.app", "admin@98point7.com"];
+const ADMIN_EMAILS = ["admin@shifty.app", "admin@98point7.com", "yeomjw0907@onecation.co.kr", "yeomjw0907@naver.com"];
 
 // Helper: Generate random invite code
 function generateInviteCode(): string {
@@ -1801,6 +1801,2059 @@ app.get("/make-server-3afd3c70/admin/stats", async (c) => {
     });
   } catch (error) {
     console.error("Admin stats error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// HOSPITAL ADMIN ROUTES
+// ======================
+
+// Helper: Check if user is admin for a hospital
+async function checkHospitalAdmin(
+  accessToken: string,
+  hospitalId: string,
+): Promise<{ isAdmin: boolean; user: any; userData: any }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser(accessToken);
+  if (!user) {
+    return { isAdmin: false, user: null, userData: null };
+  }
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("id, email, hospital_id")
+    .eq("auth_id", user.id)
+    .single();
+
+  if (!userData) {
+    return { isAdmin: false, user, userData: null };
+  }
+
+  // Check if user is in ADMIN_EMAILS (system admin)
+  const isSystemAdmin = ADMIN_EMAILS.includes(userData.email);
+
+  // Check if user is admin for this hospital
+  const { data: adminData } = await supabase
+    .from("hospital_admins")
+    .select("id, role")
+    .eq("hospital_id", hospitalId)
+    .eq("user_id", userData.id)
+    .single();
+
+  const isHospitalAdmin = !!adminData || isSystemAdmin;
+
+  return { isAdmin: isHospitalAdmin, user, userData };
+}
+
+// Get admin status for a hospital
+app.get("/make-server-3afd3c70/admin/hospitals/:hospitalId/status", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const hospitalId = c.req.param("hospitalId");
+    if (!hospitalId) {
+      return c.json({ error: "Hospital ID is required" }, 400);
+    }
+
+    const { isAdmin, userData } = await checkHospitalAdmin(
+      accessToken,
+      hospitalId,
+    );
+
+    return c.json({
+      isAdmin,
+      role: isAdmin ? "admin" : "user",
+      userId: userData?.id,
+    });
+  } catch (error) {
+    console.error("Check admin status error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get admin posts (notices or meal menus)
+app.get("/make-server-3afd3c70/admin/hospitals/:hospitalId/posts", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const hospitalId = c.req.param("hospitalId");
+    const postType = c.req.query("type") as "notice" | "menu";
+
+    if (!hospitalId) {
+      return c.json({ error: "Hospital ID is required" }, 400);
+    }
+
+    if (!postType || !["notice", "menu"].includes(postType)) {
+      return c.json({ error: "Post type must be 'notice' or 'menu'" }, 400);
+    }
+
+    const { isAdmin } = await checkHospitalAdmin(accessToken, hospitalId);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    // Get community_id for this hospital
+    const { data: community } = await supabase
+      .from("hospital_communities")
+      .select("id")
+      .eq("hospital_id", hospitalId)
+      .single();
+
+    if (!community) {
+      return c.json({ posts: [] });
+    }
+
+    if (postType === "notice") {
+      // Get notices from hospital_official_info
+      const { data: notices, error: noticesError } = await supabase
+        .from("hospital_official_info")
+        .select(
+          "id, title, content, info_type, view_count, created_at, updated_at, created_by",
+        )
+        .eq("community_id", community.id)
+        .eq("info_type", "notice")
+        .order("created_at", { ascending: false });
+
+      if (noticesError) {
+        console.error("Get notices error:", noticesError);
+        return c.json({ error: "Failed to get notices" }, 500);
+      }
+
+      // Format notices as posts
+      const posts = (notices || []).map((notice: any) => ({
+        id: notice.id,
+        title: notice.title,
+        content: notice.content,
+        postType: "notice",
+        createdAt: notice.created_at,
+        updatedAt: notice.updated_at,
+        viewCount: notice.view_count || 0,
+        likeCount: 0,
+        commentCount: 0,
+      }));
+
+      return c.json({ posts });
+    } else {
+      // Get meal menus
+      const { data: menus, error: menusError } = await supabase
+        .from("meal_menus")
+        .select(
+          "id, menu_date, meal_type, menu_items, image_url, created_at, updated_at, created_by",
+        )
+        .eq("community_id", community.id)
+        .order("menu_date", { ascending: false })
+        .order("meal_type", { ascending: true });
+
+      if (menusError) {
+        console.error("Get meal menus error:", menusError);
+        return c.json({ error: "Failed to get meal menus" }, 500);
+      }
+
+      // Format meal menus as posts
+      const mealTypeLabels: Record<string, string> = {
+        breakfast: "아침",
+        lunch: "점심",
+        dinner: "저녁",
+      };
+
+      const posts = (menus || []).map((menu: any) => ({
+        id: menu.id,
+        title: `${new Date(menu.menu_date).toLocaleDateString("ko-KR")} ${mealTypeLabels[menu.meal_type] || menu.meal_type}`,
+        content: menu.menu_items,
+        postType: "menu",
+        createdAt: menu.created_at,
+        updatedAt: menu.updated_at,
+        viewCount: 0,
+        likeCount: 0,
+        commentCount: 0,
+        menuDate: menu.menu_date,
+        mealType: menu.meal_type,
+        imageUrl: menu.image_url,
+      }));
+
+      return c.json({ posts });
+    }
+  } catch (error) {
+    console.error("Get admin posts error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Create admin post (notice or meal menu)
+app.post("/make-server-3afd3c70/admin/hospitals/:hospitalId/posts", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const hospitalId = c.req.param("hospitalId");
+    if (!hospitalId) {
+      return c.json({ error: "Hospital ID is required" }, 400);
+    }
+
+    const { isAdmin, userData } = await checkHospitalAdmin(
+      accessToken,
+      hospitalId,
+    );
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const body = await c.req.json();
+    const { title, content, postType, menuDate, mealType } = body;
+
+    if (!title || !content || !postType) {
+      return c.json(
+        { error: "Title, content, and postType are required" },
+        400,
+      );
+    }
+
+    // Get community_id for this hospital
+    const { data: community } = await supabase
+      .from("hospital_communities")
+      .select("id")
+      .eq("hospital_id", hospitalId)
+      .single();
+
+    if (!community) {
+      return c.json(
+        { error: "Community not found for this hospital" },
+        404,
+      );
+    }
+
+    if (postType === "notice") {
+      // Create notice in hospital_official_info
+      const { data: notice, error: noticeError } = await supabase
+        .from("hospital_official_info")
+        .insert({
+          community_id: community.id,
+          title,
+          content,
+          info_type: "notice",
+          view_count: 0,
+          created_by: userData.id,
+        })
+        .select()
+        .single();
+
+      if (noticeError) {
+        console.error("Create notice error:", noticeError);
+        return c.json({ error: "Failed to create notice" }, 500);
+      }
+
+      // Send notifications to hospital community members
+      try {
+        // Get all users in this hospital
+        const { data: hospitalUsers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("hospital_id", hospitalId);
+
+        if (hospitalUsers && hospitalUsers.length > 0) {
+          // Get notification settings for each user
+          const notifications: any[] = [];
+          for (const user of hospitalUsers) {
+            // Check if user has community notice enabled
+            const { data: settings } = await supabase
+              .from("notification_settings")
+              .select("community_notice_enabled")
+              .eq("user_id", user.id)
+              .single();
+
+            // Default to true if no settings exist
+            const shouldNotify = settings?.community_notice_enabled !== false;
+
+            if (shouldNotify) {
+              notifications.push({
+                user_id: user.id,
+                notification_type: "community_notice",
+                title: "새 공지사항",
+                content: title,
+                related_id: notice.id,
+                related_type: "post",
+              });
+            }
+          }
+
+          // Create notifications
+          if (notifications.length > 0) {
+            await supabase.from("notifications").insert(notifications);
+            // TODO: Send push notifications via FCM (Step 4)
+          }
+        }
+      } catch (notifError) {
+        console.error("Send notification error:", notifError);
+        // Don't fail the request if notification fails
+      }
+
+      return c.json({
+        post: {
+          id: notice.id,
+          title: notice.title,
+          content: notice.content,
+          postType: "notice",
+          createdAt: notice.created_at,
+          updatedAt: notice.updated_at,
+          viewCount: notice.view_count || 0,
+          likeCount: 0,
+          commentCount: 0,
+        },
+      });
+    } else if (postType === "menu") {
+      // Create meal menu
+      if (!menuDate || !mealType) {
+        return c.json(
+          { error: "menuDate and mealType are required for menu posts" },
+          400,
+        );
+      }
+
+      const { data: menu, error: menuError } = await supabase
+        .from("meal_menus")
+        .insert({
+          community_id: community.id,
+          menu_date: menuDate,
+          meal_type: mealType,
+          menu_items: content,
+          created_by: userData.id,
+        })
+        .select()
+        .single();
+
+      if (menuError) {
+        console.error("Create meal menu error:", menuError);
+        return c.json({ error: "Failed to create meal menu" }, 500);
+      }
+
+      const mealTypeLabels: Record<string, string> = {
+        breakfast: "아침",
+        lunch: "점심",
+        dinner: "저녁",
+      };
+
+      return c.json({
+        post: {
+          id: menu.id,
+          title: `${new Date(menu.menu_date).toLocaleDateString("ko-KR")} ${mealTypeLabels[menu.meal_type] || menu.meal_type}`,
+          content: menu.menu_items,
+          postType: "menu",
+          createdAt: menu.created_at,
+          updatedAt: menu.updated_at,
+          viewCount: 0,
+          likeCount: 0,
+          commentCount: 0,
+          menuDate: menu.menu_date,
+          mealType: menu.meal_type,
+        },
+      });
+    } else {
+      return c.json({ error: "Invalid postType" }, 400);
+    }
+  } catch (error) {
+    console.error("Create admin post error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Update admin post
+app.patch("/make-server-3afd3c70/admin/hospitals/:hospitalId/posts/:postId", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const hospitalId = c.req.param("hospitalId");
+    const postId = c.req.param("postId");
+    if (!hospitalId || !postId) {
+      return c.json({ error: "Hospital ID and Post ID are required" }, 400);
+    }
+
+    const { isAdmin } = await checkHospitalAdmin(accessToken, hospitalId);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const body = await c.req.json();
+    const { title, content } = body;
+
+    // Get community_id for this hospital
+    const { data: community } = await supabase
+      .from("hospital_communities")
+      .select("id")
+      .eq("hospital_id", hospitalId)
+      .single();
+
+    if (!community) {
+      return c.json(
+        { error: "Community not found for this hospital" },
+        404,
+      );
+    }
+
+    // Try to update in hospital_official_info first
+    const updates: any = {};
+    if (title) updates.title = title;
+    if (content) updates.content = content;
+
+    const { data: notice, error: noticeError } = await supabase
+      .from("hospital_official_info")
+      .update(updates)
+      .eq("id", postId)
+      .eq("community_id", community.id)
+      .select()
+      .single();
+
+    if (!noticeError && notice) {
+      return c.json({
+        post: {
+          id: notice.id,
+          title: notice.title,
+          content: notice.content,
+          postType: "notice",
+          createdAt: notice.created_at,
+          updatedAt: notice.updated_at,
+          viewCount: notice.view_count || 0,
+          likeCount: 0,
+          commentCount: 0,
+        },
+      });
+    }
+
+    // If not found in hospital_official_info, try meal_menus
+    const { data: menu, error: menuError } = await supabase
+      .from("meal_menus")
+      .update(updates)
+      .eq("id", postId)
+      .eq("community_id", community.id)
+      .select()
+      .single();
+
+    if (menuError) {
+      console.error("Update post error:", menuError);
+      return c.json({ error: "Post not found" }, 404);
+    }
+
+    const mealTypeLabels: Record<string, string> = {
+      breakfast: "아침",
+      lunch: "점심",
+      dinner: "저녁",
+    };
+
+    return c.json({
+      post: {
+        id: menu.id,
+        title: `${new Date(menu.menu_date).toLocaleDateString("ko-KR")} ${mealTypeLabels[menu.meal_type] || menu.meal_type}`,
+        content: menu.menu_items,
+        postType: "menu",
+        createdAt: menu.created_at,
+        updatedAt: menu.updated_at,
+        viewCount: 0,
+        likeCount: 0,
+        commentCount: 0,
+        menuDate: menu.menu_date,
+        mealType: menu.meal_type,
+      },
+    });
+  } catch (error) {
+    console.error("Update admin post error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Delete admin post
+app.delete("/make-server-3afd3c70/admin/hospitals/:hospitalId/posts/:postId", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const hospitalId = c.req.param("hospitalId");
+    const postId = c.req.param("postId");
+    if (!hospitalId || !postId) {
+      return c.json({ error: "Hospital ID and Post ID are required" }, 400);
+    }
+
+    const { isAdmin } = await checkHospitalAdmin(accessToken, hospitalId);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    // Get community_id for this hospital
+    const { data: community } = await supabase
+      .from("hospital_communities")
+      .select("id")
+      .eq("hospital_id", hospitalId)
+      .single();
+
+    if (!community) {
+      return c.json(
+        { error: "Community not found for this hospital" },
+        404,
+      );
+    }
+
+    // Try to delete from hospital_official_info first
+    const { error: noticeError } = await supabase
+      .from("hospital_official_info")
+      .delete()
+      .eq("id", postId)
+      .eq("community_id", community.id);
+
+    if (!noticeError) {
+      return c.json({ success: true });
+    }
+
+    // If not found in hospital_official_info, try meal_menus
+    const { error: menuError } = await supabase
+      .from("meal_menus")
+      .delete()
+      .eq("id", postId)
+      .eq("community_id", community.id);
+
+    if (menuError) {
+      console.error("Delete post error:", menuError);
+      return c.json({ error: "Post not found" }, 404);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Delete admin post error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// USER MANAGEMENT ROUTES (Admin Only)
+// ======================
+
+// Helper: Check if user is system admin
+async function checkSystemAdmin(accessToken: string): Promise<{ isAdmin: boolean; user: any; userData: any }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser(accessToken);
+  if (!user) {
+    return { isAdmin: false, user: null, userData: null };
+  }
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("id, email")
+    .eq("auth_id", user.id)
+    .single();
+
+  if (!userData) {
+    return { isAdmin: false, user, userData: null };
+  }
+
+  const isSystemAdmin = ADMIN_EMAILS.includes(userData.email);
+
+  return { isAdmin: isSystemAdmin, user, userData };
+}
+
+// Get all users (admin only)
+app.get("/make-server-3afd3c70/admin/users", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = parseInt(c.req.query("limit") || "50");
+    const offset = (page - 1) * limit;
+    const search = c.req.query("search") || "";
+
+    let query = supabase
+      .from("users")
+      .select("id, auth_id, email, name, hospital, department, position, phone, avatar_url, hospital_id, created_at, updated_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,hospital.ilike.%${search}%`);
+    }
+
+    const { data: users, error, count } = await query;
+
+    if (error) {
+      console.error("Get users error:", error);
+      return c.json({ error: "Failed to get users" }, 500);
+    }
+
+    return c.json({
+      users: (users || []).map((u: any) => ({
+        ...u,
+        createdAt: u.created_at,
+        updatedAt: u.updated_at,
+      })),
+      total: count || 0,
+      page,
+      limit,
+    });
+  } catch (error) {
+    console.error("Get users error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get user details with all related data
+app.get("/make-server-3afd3c70/admin/users/:userId", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const userId = c.req.param("userId");
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
+    // Get user basic info
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (userError || !user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // Get teams user belongs to
+    const { data: teamMemberships } = await supabase
+      .from("team_members")
+      .select("team_id, role, color, joined_at, teams!inner(id, name, invite_code, hospital, department, created_at)")
+      .eq("user_id", userId);
+
+    // Get teams user created
+    const { data: createdTeams } = await supabase
+      .from("teams")
+      .select("id, name, invite_code, hospital, department, created_at")
+      .eq("created_by", userId)
+      .order("created_at", { ascending: false });
+
+    // Get tasks user created
+    const { data: tasks } = await supabase
+      .from("tasks")
+      .select("id, title, shift_type, date, team_id, teams!inner(id, name)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    // Get community posts user created
+    const { data: posts } = await supabase
+      .from("community_posts")
+      .select("id, title, post_type, is_anonymous, view_count, like_count, created_at, hospital_communities!inner(id, name, hospitals!inner(id, name, name_kr)))")
+      .eq("author_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    // Get comments user created
+    const { data: comments } = await supabase
+      .from("community_comments")
+      .select("id, content, is_anonymous, created_at, community_posts!inner(id, title, post_type))")
+      .eq("author_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    return c.json({
+      user: {
+        ...user,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+      },
+      teams: teamMemberships || [],
+      createdTeams: createdTeams || [],
+      tasks: tasks || [],
+      posts: posts || [],
+      comments: comments || [],
+    });
+  } catch (error) {
+    console.error("Get user details error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Update user
+app.patch("/make-server-3afd3c70/admin/users/:userId", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const userId = c.req.param("userId");
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
+    const body = await c.req.json();
+    const { name, email, hospital, department, position, phone, hospital_id } = body;
+
+    const updates: any = {};
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (hospital !== undefined) updates.hospital = hospital;
+    if (department !== undefined) updates.department = department;
+    if (position !== undefined) updates.position = position;
+    if (phone !== undefined) updates.phone = phone;
+    if (hospital_id !== undefined) updates.hospital_id = hospital_id;
+
+    const { data: updatedUser, error: updateError } = await supabase
+      .from("users")
+      .update(updates)
+      .eq("id", userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("Update user error:", updateError);
+      return c.json({ error: "Failed to update user" }, 500);
+    }
+
+    return c.json({
+      user: {
+        ...updatedUser,
+        createdAt: updatedUser.created_at,
+        updatedAt: updatedUser.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Update user error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Delete user
+app.delete("/make-server-3afd3c70/admin/users/:userId", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin, userData } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const userId = c.req.param("userId");
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
+    // Prevent self-deletion
+    if (userData.id === userId) {
+      return c.json({ error: "Cannot delete yourself" }, 400);
+    }
+
+    // Get user's auth_id to delete from auth
+    const { data: user } = await supabase
+      .from("users")
+      .select("auth_id")
+      .eq("id", userId)
+      .single();
+
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // Delete from auth (this will cascade delete from users table due to ON DELETE CASCADE)
+    const { error: authError } = await supabase.auth.admin.deleteUser(
+      user.auth_id,
+    );
+
+    if (authError) {
+      console.error("Delete user from auth error:", authError);
+      return c.json({ error: "Failed to delete user" }, 500);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Delete user error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// ANALYTICS ROUTES (Admin Only)
+// ======================
+
+// Get analytics overview
+app.get("/make-server-3afd3c70/admin/analytics/overview", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    // Get date range from query params
+    const startDate = c.req.query("startDate") || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const endDate = c.req.query("endDate") || new Date().toISOString().split('T')[0];
+
+    // Total users
+    const { count: totalUsers } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true });
+
+    // New users in date range
+    const { count: newUsers } = await supabase
+      .from("users")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", startDate)
+      .lte("created_at", `${endDate}T23:59:59`);
+
+    // Total teams
+    const { count: totalTeams } = await supabase
+      .from("teams")
+      .select("*", { count: "exact", head: true });
+
+    // Total posts
+    const { count: totalPosts } = await supabase
+      .from("community_posts")
+      .select("*", { count: "exact", head: true });
+
+    // Total comments
+    const { count: totalComments } = await supabase
+      .from("community_comments")
+      .select("*", { count: "exact", head: true });
+
+    // Daily visits (if user_visits table exists)
+    const { data: dailyVisits } = await supabase
+      .from("user_visits")
+      .select("visit_date, user_id")
+      .gte("visit_date", startDate)
+      .lte("visit_date", endDate)
+      .catch(() => ({ data: null }));
+
+    // Calculate unique daily visitors
+    const uniqueVisitorsByDate: Record<string, Set<string>> = {};
+    if (dailyVisits) {
+      dailyVisits.forEach((visit: any) => {
+        const date = visit.visit_date;
+        if (!uniqueVisitorsByDate[date]) {
+          uniqueVisitorsByDate[date] = new Set();
+        }
+        if (visit.user_id) {
+          uniqueVisitorsByDate[date].add(visit.user_id);
+        }
+      });
+    }
+
+    const dailyVisitorStats = Object.entries(uniqueVisitorsByDate).map(([date, visitors]) => ({
+      date,
+      count: visitors.size,
+    })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Active users (users who logged in in last 7 days)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: activeUsers7d } = await supabase
+      .from("user_visits")
+      .select("user_id", { count: "exact", head: true })
+      .gte("visit_time", sevenDaysAgo)
+      .not("user_id", "is", null)
+      .catch(() => ({ count: 0 }));
+
+    // Active users (last 30 days)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: activeUsers30d } = await supabase
+      .from("user_visits")
+      .select("user_id", { count: "exact", head: true })
+      .gte("visit_time", thirtyDaysAgo)
+      .not("user_id", "is", null)
+      .catch(() => ({ count: 0 }));
+
+    return c.json({
+      overview: {
+        totalUsers: totalUsers || 0,
+        newUsers: newUsers || 0,
+        totalTeams: totalTeams || 0,
+        totalPosts: totalPosts || 0,
+        totalComments: totalComments || 0,
+        activeUsers7d: activeUsers7d || 0,
+        activeUsers30d: activeUsers30d || 0,
+        dailyVisitorStats,
+      },
+    });
+  } catch (error) {
+    console.error("Get analytics overview error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get hospital statistics
+app.get("/make-server-3afd3c70/admin/analytics/hospitals", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    // Get all hospitals with statistics
+    const { data: hospitals } = await supabase
+      .from("hospitals")
+      .select("id, name, name_kr, city, district, type")
+      .order("name_kr", { ascending: true });
+
+    if (!hospitals) {
+      return c.json({ hospitals: [] });
+    }
+
+    // Get statistics for each hospital
+    const hospitalStats = await Promise.all(
+      hospitals.map(async (hospital: any) => {
+        // Users in this hospital
+        const { count: userCount } = await supabase
+          .from("users")
+          .select("*", { count: "exact", head: true })
+          .eq("hospital_id", hospital.id);
+
+        // Teams in this hospital
+        const { count: teamCount } = await supabase
+          .from("teams")
+          .select("*", { count: "exact", head: true })
+          .eq("hospital", hospital.name_kr || hospital.name);
+
+        // Get community for this hospital
+        const { data: community } = await supabase
+          .from("hospital_communities")
+          .select("id")
+          .eq("hospital_id", hospital.id)
+          .single();
+
+        let postCount = 0;
+        let commentCount = 0;
+        if (community) {
+          const { count: posts } = await supabase
+            .from("community_posts")
+            .select("*", { count: "exact", head: true })
+            .eq("community_id", community.id);
+
+          const { count: comments } = await supabase
+            .from("community_comments")
+            .select("*", { count: "exact", head: true })
+            .in(
+              "post_id",
+              supabase
+                .from("community_posts")
+                .select("id")
+                .eq("community_id", community.id),
+            );
+
+          postCount = posts || 0;
+          commentCount = comments || 0;
+        }
+
+        // Active users (last 7 days)
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const { count: activeUsers } = await supabase
+          .from("user_visits")
+          .select("user_id", { count: "exact", head: true })
+          .gte("visit_time", sevenDaysAgo)
+          .in(
+            "user_id",
+            supabase
+              .from("users")
+              .select("id")
+              .eq("hospital_id", hospital.id),
+          )
+          .catch(() => ({ count: 0 }));
+
+        return {
+          hospital: {
+            id: hospital.id,
+            name: hospital.name_kr || hospital.name,
+            city: hospital.city,
+            district: hospital.district,
+            type: hospital.type,
+          },
+          stats: {
+            userCount: userCount || 0,
+            teamCount: teamCount || 0,
+            postCount,
+            commentCount,
+            activeUsers: activeUsers || 0,
+          },
+        };
+      }),
+    );
+
+    return c.json({ hospitals: hospitalStats });
+  } catch (error) {
+    console.error("Get hospital statistics error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get community statistics
+app.get("/make-server-3afd3c70/admin/analytics/community", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    // Get date range
+    const startDate = c.req.query("startDate") || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const endDate = c.req.query("endDate") || new Date().toISOString().split('T')[0];
+
+    // Posts by type
+    const { data: postsByType } = await supabase
+      .from("community_posts")
+      .select("post_type")
+      .gte("created_at", `${startDate}T00:00:00`)
+      .lte("created_at", `${endDate}T23:59:59`);
+
+    const postTypeDistribution = (postsByType || []).reduce((acc: any, post: any) => {
+      acc[post.post_type] = (acc[post.post_type] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Daily posts and comments
+    const { data: dailyPosts } = await supabase
+      .from("community_posts")
+      .select("created_at")
+      .gte("created_at", `${startDate}T00:00:00`)
+      .lte("created_at", `${endDate}T23:59:59`);
+
+    const { data: dailyComments } = await supabase
+      .from("community_comments")
+      .select("created_at")
+      .gte("created_at", `${startDate}T00:00:00`)
+      .lte("created_at", `${endDate}T23:59:59`);
+
+    // Group by date
+    const postsByDate: Record<string, number> = {};
+    (dailyPosts || []).forEach((post: any) => {
+      const date = post.created_at.split('T')[0];
+      postsByDate[date] = (postsByDate[date] || 0) + 1;
+    });
+
+    const commentsByDate: Record<string, number> = {};
+    (dailyComments || []).forEach((comment: any) => {
+      const date = comment.created_at.split('T')[0];
+      commentsByDate[date] = (commentsByDate[date] || 0) + 1;
+    });
+
+    const dailyStats = Object.keys({ ...postsByDate, ...commentsByDate })
+      .sort()
+      .map((date) => ({
+        date,
+        posts: postsByDate[date] || 0,
+        comments: commentsByDate[date] || 0,
+      }));
+
+    // Top posts by view count
+    const { data: topPosts } = await supabase
+      .from("community_posts")
+      .select("id, title, view_count, like_count, post_type, created_at")
+      .order("view_count", { ascending: false })
+      .limit(10);
+
+    // Top posts by like count
+    const { data: topLikedPosts } = await supabase
+      .from("community_posts")
+      .select("id, title, view_count, like_count, post_type, created_at")
+      .order("like_count", { ascending: false })
+      .limit(10);
+
+    return c.json({
+      postTypeDistribution,
+      dailyStats,
+      topPosts: topPosts || [],
+      topLikedPosts: topLikedPosts || [],
+    });
+  } catch (error) {
+    console.error("Get community statistics error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// POPUP MANAGEMENT ROUTES (Admin Only)
+// ======================
+
+// Get all popups
+app.get("/make-server-3afd3c70/admin/popups", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const { data: popups, error } = await supabase
+      .from("admin_popups")
+      .select("*")
+      .order("priority", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Get popups error:", error);
+      return c.json({ error: "Failed to get popups" }, 500);
+    }
+
+    return c.json({
+      popups: (popups || []).map((p: any) => ({
+        ...p,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Get popups error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Create popup
+app.post("/make-server-3afd3c70/admin/popups", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin, userData } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const body = await c.req.json();
+    const {
+      title,
+      content,
+      image_url,
+      link_url,
+      popup_type,
+      target_audience,
+      target_hospital_id,
+      start_date,
+      end_date,
+      display_frequency,
+      is_active,
+      priority,
+    } = body;
+
+    if (!title || !content) {
+      return c.json({ error: "Title and content are required" }, 400);
+    }
+
+    const { data: popup, error: createError } = await supabase
+      .from("admin_popups")
+      .insert({
+        title,
+        content,
+        image_url,
+        link_url,
+        popup_type: popup_type || "info",
+        target_audience: target_audience || "all",
+        target_hospital_id,
+        start_date,
+        end_date,
+        display_frequency: display_frequency || "once",
+        is_active: is_active !== undefined ? is_active : true,
+        priority: priority || 0,
+        created_by: userData.id,
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      console.error("Create popup error:", createError);
+      return c.json({ error: "Failed to create popup" }, 500);
+    }
+
+    return c.json({
+      popup: {
+        ...popup,
+        createdAt: popup.created_at,
+        updatedAt: popup.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Create popup error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Update popup
+app.patch("/make-server-3afd3c70/admin/popups/:id", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const popupId = c.req.param("id");
+    if (!popupId) {
+      return c.json({ error: "Popup ID is required" }, 400);
+    }
+
+    const body = await c.req.json();
+    const updates: any = {};
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.content !== undefined) updates.content = body.content;
+    if (body.image_url !== undefined) updates.image_url = body.image_url;
+    if (body.link_url !== undefined) updates.link_url = body.link_url;
+    if (body.popup_type !== undefined) updates.popup_type = body.popup_type;
+    if (body.target_audience !== undefined) updates.target_audience = body.target_audience;
+    if (body.target_hospital_id !== undefined) updates.target_hospital_id = body.target_hospital_id;
+    if (body.start_date !== undefined) updates.start_date = body.start_date;
+    if (body.end_date !== undefined) updates.end_date = body.end_date;
+    if (body.display_frequency !== undefined) updates.display_frequency = body.display_frequency;
+    if (body.is_active !== undefined) updates.is_active = body.is_active;
+    if (body.priority !== undefined) updates.priority = body.priority;
+
+    const { data: popup, error: updateError } = await supabase
+      .from("admin_popups")
+      .update(updates)
+      .eq("id", popupId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error("Update popup error:", updateError);
+      return c.json({ error: "Failed to update popup" }, 500);
+    }
+
+    return c.json({
+      popup: {
+        ...popup,
+        createdAt: popup.created_at,
+        updatedAt: popup.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Update popup error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Delete popup
+app.delete("/make-server-3afd3c70/admin/popups/:id", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const popupId = c.req.param("id");
+    if (!popupId) {
+      return c.json({ error: "Popup ID is required" }, 400);
+    }
+
+    const { error: deleteError } = await supabase
+      .from("admin_popups")
+      .delete()
+      .eq("id", popupId);
+
+    if (deleteError) {
+      console.error("Delete popup error:", deleteError);
+      return c.json({ error: "Failed to delete popup" }, 500);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Delete popup error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get popup statistics
+app.get("/make-server-3afd3c70/admin/popups/:id/stats", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const popupId = c.req.param("id");
+    if (!popupId) {
+      return c.json({ error: "Popup ID is required" }, 400);
+    }
+
+    // Get interaction counts
+    const { count: viewCount } = await supabase
+      .from("popup_interactions")
+      .select("*", { count: "exact", head: true })
+      .eq("popup_id", popupId)
+      .eq("interaction_type", "view")
+      .catch(() => ({ count: 0 }));
+
+    const { count: clickCount } = await supabase
+      .from("popup_interactions")
+      .select("*", { count: "exact", head: true })
+      .eq("popup_id", popupId)
+      .eq("interaction_type", "click")
+      .catch(() => ({ count: 0 }));
+
+    const { count: closeCount } = await supabase
+      .from("popup_interactions")
+      .select("*", { count: "exact", head: true })
+      .eq("popup_id", popupId)
+      .eq("interaction_type", "close")
+      .catch(() => ({ count: 0 }));
+
+    // Daily interactions
+    const { data: interactions } = await supabase
+      .from("popup_interactions")
+      .select("interaction_type, created_at")
+      .eq("popup_id", popupId)
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .catch(() => ({ data: [] }));
+
+    const dailyInteractions: Record<string, { views: number; clicks: number; closes: number }> = {};
+    (interactions || []).forEach((interaction: any) => {
+      const date = interaction.created_at.split('T')[0];
+      if (!dailyInteractions[date]) {
+        dailyInteractions[date] = { views: 0, clicks: 0, closes: 0 };
+      }
+      if (interaction.interaction_type === "view") dailyInteractions[date].views++;
+      if (interaction.interaction_type === "click") dailyInteractions[date].clicks++;
+      if (interaction.interaction_type === "close") dailyInteractions[date].closes++;
+    });
+
+    const dailyStats = Object.entries(dailyInteractions)
+      .map(([date, stats]) => ({
+        date,
+        ...stats,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return c.json({
+      stats: {
+        viewCount: viewCount || 0,
+        clickCount: clickCount || 0,
+        closeCount: closeCount || 0,
+        clickThroughRate: viewCount > 0 ? ((clickCount || 0) / viewCount) * 100 : 0,
+        dailyStats,
+      },
+    });
+  } catch (error) {
+    console.error("Get popup statistics error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// TEAM BOARD POSTS ROUTES
+// ======================
+
+// Create team board post (notice or message)
+app.post("/make-server-3afd3c70/teams/:teamId/posts", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const teamId = c.req.param("teamId");
+    const body = await c.req.json();
+    const { content, type } = body;
+
+    if (!content || !type) {
+      return c.json({ error: "Content and type are required" }, 400);
+    }
+
+    // Check if user is a member of this team
+    const { data: membership } = await supabase
+      .from("team_members")
+      .select("id")
+      .eq("team_id", teamId)
+      .eq("user_id", userProfile.id)
+      .single();
+
+    if (!membership) {
+      return c.json({ error: "You are not a member of this team" }, 403);
+    }
+
+    // Save post to localStorage (client-side) or create a board_posts table
+    // For now, we'll just send notifications if it's a notice
+    if (type === "notice") {
+      // Get all team members
+      const { data: teamMembers } = await supabase
+        .from("team_members")
+        .select("user_id")
+        .eq("team_id", teamId);
+
+      if (teamMembers && teamMembers.length > 0) {
+        // Get notification settings for each member
+        const notifications: any[] = [];
+        for (const member of teamMembers) {
+          // Skip the author
+          if (member.user_id === userProfile.id) continue;
+
+          // Check if user has team notice enabled
+          const { data: settings } = await supabase
+            .from("notification_settings")
+            .select("team_notice_enabled")
+            .eq("user_id", member.user_id)
+            .single();
+
+          // Default to true if no settings exist
+          const shouldNotify = settings?.team_notice_enabled !== false;
+
+          if (shouldNotify) {
+            notifications.push({
+              user_id: member.user_id,
+              notification_type: "team_notice",
+              title: "팀 공지",
+              content: content.substring(0, 100), // First 100 chars
+              related_id: teamId,
+              related_type: "team",
+            });
+          }
+        }
+
+        // Create notifications
+        if (notifications.length > 0) {
+          await supabase.from("notifications").insert(notifications);
+          // TODO: Send push notifications via FCM (Step 4)
+        }
+      }
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Create team post error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// NOTIFICATION ROUTES
+// ======================
+
+// Get notifications for current user
+app.get("/make-server-3afd3c70/notifications", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = parseInt(c.req.query("limit") || "50");
+    const offset = (page - 1) * limit;
+    const unreadOnly = c.req.query("unreadOnly") === "true";
+
+    let query = supabase
+      .from("notifications")
+      .select("*", { count: "exact" })
+      .eq("user_id", userProfile.id)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (unreadOnly) {
+      query = query.eq("is_read", false);
+    }
+
+    const { data: notifications, error, count } = await query;
+
+    if (error) {
+      console.error("Get notifications error:", error);
+      return c.json({ error: "Failed to get notifications" }, 500);
+    }
+
+    return c.json({
+      notifications: (notifications || []).map((n: any) => ({
+        ...n,
+        createdAt: n.created_at,
+        readAt: n.read_at,
+        isRead: n.is_read,
+      })),
+      total: count || 0,
+      page,
+      limit,
+    });
+  } catch (error) {
+    console.error("Get notifications error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Mark notification as read
+app.patch("/make-server-3afd3c70/notifications/:id/read", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const notificationId = c.req.param("id");
+    if (!notificationId) {
+      return c.json({ error: "Notification ID is required" }, 400);
+    }
+
+    const { data: notification, error: updateError } = await supabase
+      .from("notifications")
+      .update({
+        is_read: true,
+        read_at: new Date().toISOString(),
+      })
+      .eq("id", notificationId)
+      .eq("user_id", userProfile.id)
+      .select()
+      .single();
+
+    if (updateError || !notification) {
+      console.error("Update notification error:", updateError);
+      return c.json({ error: "Failed to update notification" }, 500);
+    }
+
+    return c.json({
+      notification: {
+        ...notification,
+        createdAt: notification.created_at,
+        readAt: notification.read_at,
+        isRead: notification.is_read,
+      },
+    });
+  } catch (error) {
+    console.error("Update notification error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get notification settings
+app.get("/make-server-3afd3c70/notification-settings", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const { data: settings, error } = await supabase
+      .from("notification_settings")
+      .select("*")
+      .eq("user_id", userProfile.id)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Get notification settings error:", error);
+      return c.json({ error: "Failed to get notification settings" }, 500);
+    }
+
+    // If no settings exist, return defaults
+    if (!settings) {
+      return c.json({
+        settings: {
+          teamNoticeEnabled: true,
+          communityNoticeEnabled: true,
+          adminAnnouncementEnabled: true,
+          pushEnabled: true,
+          emailEnabled: false,
+        },
+      });
+    }
+
+    return c.json({
+      settings: {
+        teamNoticeEnabled: settings.team_notice_enabled,
+        communityNoticeEnabled: settings.community_notice_enabled,
+        adminAnnouncementEnabled: settings.admin_announcement_enabled,
+        pushEnabled: settings.push_enabled,
+        emailEnabled: settings.email_enabled,
+        createdAt: settings.created_at,
+        updatedAt: settings.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Get notification settings error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Update notification settings
+app.patch("/make-server-3afd3c70/notification-settings", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const body = await c.req.json();
+    const updates: any = {};
+    if (body.teamNoticeEnabled !== undefined) updates.team_notice_enabled = body.teamNoticeEnabled;
+    if (body.communityNoticeEnabled !== undefined) updates.community_notice_enabled = body.communityNoticeEnabled;
+    if (body.adminAnnouncementEnabled !== undefined) updates.admin_announcement_enabled = body.adminAnnouncementEnabled;
+    if (body.pushEnabled !== undefined) updates.push_enabled = body.pushEnabled;
+    if (body.emailEnabled !== undefined) updates.email_enabled = body.emailEnabled;
+
+    // Check if settings exist
+    const { data: existingSettings } = await supabase
+      .from("notification_settings")
+      .select("id")
+      .eq("user_id", userProfile.id)
+      .single();
+
+    let settings;
+    if (existingSettings) {
+      // Update existing settings
+      const { data, error: updateError } = await supabase
+        .from("notification_settings")
+        .update(updates)
+        .eq("user_id", userProfile.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error("Update notification settings error:", updateError);
+        return c.json({ error: "Failed to update notification settings" }, 500);
+      }
+      settings = data;
+    } else {
+      // Create new settings
+      const { data, error: insertError } = await supabase
+        .from("notification_settings")
+        .insert({
+          user_id: userProfile.id,
+          ...updates,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Create notification settings error:", insertError);
+        return c.json({ error: "Failed to create notification settings" }, 500);
+      }
+      settings = data;
+    }
+
+    return c.json({
+      settings: {
+        teamNoticeEnabled: settings.team_notice_enabled,
+        communityNoticeEnabled: settings.community_notice_enabled,
+        adminAnnouncementEnabled: settings.admin_announcement_enabled,
+        pushEnabled: settings.push_enabled,
+        emailEnabled: settings.email_enabled,
+        createdAt: settings.created_at,
+        updatedAt: settings.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Update notification settings error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Register FCM token
+app.post("/make-server-3afd3c70/fcm-tokens", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser(accessToken);
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (!userProfile) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const body = await c.req.json();
+    const { token, deviceType, deviceId } = body;
+
+    if (!token) {
+      return c.json({ error: "Token is required" }, 400);
+    }
+
+    // Check if token already exists
+    const { data: existingToken } = await supabase
+      .from("fcm_tokens")
+      .select("id")
+      .eq("token", token)
+      .single();
+
+    if (existingToken) {
+      // Update existing token
+      const { data, error: updateError } = await supabase
+        .from("fcm_tokens")
+        .update({
+          user_id: userProfile.id,
+          device_type: deviceType,
+          device_id: deviceId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingToken.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error("Update FCM token error:", updateError);
+        return c.json({ error: "Failed to update FCM token" }, 500);
+      }
+
+      return c.json({
+        token: {
+          ...data,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        },
+      });
+    } else {
+      // Create new token
+      const { data, error: insertError } = await supabase
+        .from("fcm_tokens")
+        .insert({
+          user_id: userProfile.id,
+          token,
+          device_type: deviceType,
+          device_id: deviceId,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Create FCM token error:", insertError);
+        return c.json({ error: "Failed to create FCM token" }, 500);
+      }
+
+      return c.json({
+        token: {
+          ...data,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Register FCM token error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// ======================
+// ADMIN NOTIFICATION ROUTES
+// ======================
+
+// Send admin notification
+app.post("/make-server-3afd3c70/admin/notifications/send", async (c) => {
+  try {
+    const accessToken = c.req
+      .header("Authorization")
+      ?.split(" ")[1];
+    if (!accessToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { isAdmin } = await checkSystemAdmin(accessToken);
+    if (!isAdmin) {
+      return c.json(
+        { error: "Forbidden: Admin access only" },
+        403,
+      );
+    }
+
+    const body = await c.req.json();
+    const { title, content, targetAudience, targetHospitalId } = body;
+
+    if (!title || !content) {
+      return c.json({ error: "Title and content are required" }, 400);
+    }
+
+    // Get target users
+    let targetUsers: any[] = [];
+    if (targetAudience === "all") {
+      // All users
+      const { data: users } = await supabase
+        .from("users")
+        .select("id");
+      targetUsers = users || [];
+    } else if (targetAudience === "hospital" && targetHospitalId) {
+      // Users in specific hospital
+      const { data: users } = await supabase
+        .from("users")
+        .select("id")
+        .eq("hospital_id", targetHospitalId);
+      targetUsers = users || [];
+    } else {
+      return c.json({ error: "Invalid target audience" }, 400);
+    }
+
+    // Create notifications for all target users
+    const notifications = targetUsers.map((user) => ({
+      user_id: user.id,
+      notification_type: "admin_announcement",
+      title,
+      content,
+      related_type: "system",
+    }));
+
+    const { data: createdNotifications, error: insertError } = await supabase
+      .from("notifications")
+      .insert(notifications)
+      .select();
+
+    if (insertError) {
+      console.error("Create notifications error:", insertError);
+      return c.json({ error: "Failed to create notifications" }, 500);
+    }
+
+    // TODO: Send push notifications via FCM
+    // This will be implemented in Step 4
+
+    return c.json({
+      success: true,
+      notificationsCreated: createdNotifications?.length || 0,
+    });
+  } catch (error) {
+    console.error("Send admin notification error:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
   }
 });

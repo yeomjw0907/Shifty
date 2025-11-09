@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User, Building2, Briefcase, Phone, Mail, Edit2, Check, X, LogOut, Trash2, Users, Shield, Upload, Camera, Palette } from 'lucide-react';
+import { User, Building2, Briefcase, Phone, Mail, Edit2, Check, X, LogOut, Trash2, Users, Shield, Upload, Camera, Palette, Bell, BellOff } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -32,6 +32,17 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
   const [selectedColor, setSelectedColor] = useState(currentUser.color);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Notification settings
+  const [notificationSettings, setNotificationSettings] = useState({
+    teamNoticeEnabled: true,
+    communityNoticeEnabled: true,
+    adminAnnouncementEnabled: true,
+    pushEnabled: true,
+    emailEnabled: false,
+  });
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [pushPermissionStatus, setPushPermissionStatus] = useState<NotificationPermission>('default');
 
   const handleSaveName = async () => {
     if (!editedName.trim()) {
@@ -233,6 +244,93 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
 
   const memberCount = currentTeam.members?.length || 0;
   const isTeamOwner = currentTeam.createdBy === currentUser.id;
+
+  // Load notification settings
+  useEffect(() => {
+    loadNotificationSettings();
+    checkPushPermission();
+  }, []);
+
+  const loadNotificationSettings = async () => {
+    try {
+      setLoadingSettings(true);
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/notification-settings`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load notification settings');
+      }
+
+      const { settings } = await response.json();
+      if (settings) {
+        setNotificationSettings(settings);
+      }
+    } catch (error) {
+      console.error('Load notification settings error:', error);
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  const checkPushPermission = () => {
+    if ('Notification' in window) {
+      setPushPermissionStatus(Notification.permission);
+    }
+  };
+
+  const requestPushPermission = async () => {
+    if (!('Notification' in window)) {
+      toast.error('이 브라우저는 알림을 지원하지 않습니다');
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermissionStatus(permission);
+      
+      if (permission === 'granted') {
+        toast.success('푸시 알림이 활성화되었습니다');
+        // TODO: Register FCM token here (Step 4)
+      } else if (permission === 'denied') {
+        toast.error('알림 권한이 거부되었습니다. 브라우저 설정에서 권한을 허용해주세요');
+      }
+    } catch (error) {
+      console.error('Request push permission error:', error);
+      toast.error('알림 권한 요청 중 오류가 발생했습니다');
+    }
+  };
+
+  const handleUpdateNotificationSettings = async (updates: Partial<typeof notificationSettings>) => {
+    try {
+      setLoadingSettings(true);
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/notification-settings`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update notification settings');
+      }
+
+      const { settings } = await response.json();
+      setNotificationSettings(settings);
+      toast.success('알림 설정이 저장되었습니다');
+    } catch (error) {
+      console.error('Update notification settings error:', error);
+      toast.error('알림 설정 저장 중 오류가 발생했습니다');
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
 
   const colorPresets = [
     '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444', '#F59E0B',
@@ -580,6 +678,126 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
               <p className="text-xs text-slate-500 mt-2">
                 이 코드를 팀원에게 공유하여 팀에 초대할 수 있습니다
               </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Notification Settings Card */}
+        <Card className="p-6 toss-shadow">
+          <h3 className="text-slate-900 mb-4 flex items-center gap-2">
+            <Bell size={20} />
+            알림 설정
+          </h3>
+          
+          <div className="space-y-4">
+            {/* Push Notification Permission */}
+            <div>
+              <Label className="text-slate-700 mb-2 block">푸시 알림 권한</Label>
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                <div className="flex items-center gap-3">
+                  {pushPermissionStatus === 'granted' ? (
+                    <Bell size={18} className="text-green-600" />
+                  ) : (
+                    <BellOff size={18} className="text-slate-500" />
+                  )}
+                  <span className="text-slate-900">
+                    {pushPermissionStatus === 'granted' 
+                      ? '푸시 알림 활성화됨' 
+                      : pushPermissionStatus === 'denied'
+                      ? '푸시 알림 거부됨'
+                      : '푸시 알림 권한 필요'}
+                  </span>
+                </div>
+                {pushPermissionStatus !== 'granted' && (
+                  <Button
+                    size="sm"
+                    onClick={requestPushPermission}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    권한 요청
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                푸시 알림을 받으려면 브라우저 알림 권한이 필요합니다
+              </p>
+            </div>
+
+            <Separator />
+
+            {/* Team Notice */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Label className="text-slate-700 mb-1 block">팀 공지 알림</Label>
+                <p className="text-xs text-slate-500">
+                  팀 내에 공지가 올라왔을 때 알림을 받습니다
+                </p>
+              </div>
+              <button
+                onClick={() => handleUpdateNotificationSettings({ 
+                  teamNoticeEnabled: !notificationSettings.teamNoticeEnabled 
+                })}
+                disabled={loadingSettings}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  notificationSettings.teamNoticeEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    notificationSettings.teamNoticeEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Community Notice */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Label className="text-slate-700 mb-1 block">커뮤니티 공지 알림</Label>
+                <p className="text-xs text-slate-500">
+                  병원 커뮤니티 공지사항에 글이 올라왔을 때 알림을 받습니다
+                </p>
+              </div>
+              <button
+                onClick={() => handleUpdateNotificationSettings({ 
+                  communityNoticeEnabled: !notificationSettings.communityNoticeEnabled 
+                })}
+                disabled={loadingSettings}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  notificationSettings.communityNoticeEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    notificationSettings.communityNoticeEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Admin Announcement */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Label className="text-slate-700 mb-1 block">관리자 공지 알림</Label>
+                <p className="text-xs text-slate-500">
+                  관리자가 보낸 공지사항 알림을 받습니다
+                </p>
+              </div>
+              <button
+                onClick={() => handleUpdateNotificationSettings({ 
+                  adminAnnouncementEnabled: !notificationSettings.adminAnnouncementEnabled 
+                })}
+                disabled={loadingSettings}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  notificationSettings.adminAnnouncementEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    notificationSettings.adminAnnouncementEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
           </div>
         </Card>

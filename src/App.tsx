@@ -774,6 +774,8 @@ export default function App() {
               <MemberManagement 
                 teamMembers={currentTeam.members || []}
                 currentUser={currentUser}
+                currentTeam={currentTeam}
+                accessToken={accessToken}
                 onAddMember={handleAddMember}
                 onUpdateMember={handleUpdateMember}
                 onDeleteMember={handleDeleteMember}
@@ -809,6 +811,17 @@ export default function App() {
                 currentUser={currentUser}
                 currentHospitalId={(currentUser as any)?.hospitalId}
                 currentHospitalName={(currentUser as any)?.hospital}
+                accessToken={accessToken}
+              />
+            </motion.div>
+          ) : view === 'admin' ? (
+            <motion.div
+              key="admin"
+              {...FADE_IN_UP}
+            >
+              <AdminDashboard
+                currentUser={currentUser}
+                currentHospitalId={(currentUser as any)?.hospitalId}
                 accessToken={accessToken}
               />
             </motion.div>

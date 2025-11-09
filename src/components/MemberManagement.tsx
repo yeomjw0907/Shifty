@@ -8,6 +8,7 @@ import {
 import type { TeamMember } from '../App';
 import { AVATAR_COLORS, STORAGE_KEYS, FADE_IN, SCALE_IN } from '../utils/constants';
 import { formatTimestamp, getInitials } from '../utils/helpers';
+import { projectId } from '../utils/supabase/info';
 
 interface BoardPost {
   id: string;
@@ -21,6 +22,8 @@ interface BoardPost {
 interface MemberManagementProps {
   teamMembers: TeamMember[];
   currentUser: TeamMember;
+  currentTeam: { id: string; name: string };
+  accessToken: string;
   onAddMember: (member: Omit<TeamMember, 'id'>) => void;
   onUpdateMember: (memberId: string, updates: Partial<TeamMember>) => void;
   onDeleteMember: (memberId: string) => void;
@@ -29,7 +32,9 @@ interface MemberManagementProps {
 
 export function MemberManagement({ 
   teamMembers, 
-  currentUser, 
+  currentUser,
+  currentTeam,
+  accessToken,
   onAddMember,
   onUpdateMember,
   onDeleteMember,
@@ -107,7 +112,7 @@ export function MemberManagement({
     setEditingMember(null);
   };
 
-  const handleAddPost = () => {
+  const handleAddPost = async () => {
     if (!newPostContent.trim()) return;
     
     const newPost: BoardPost = {
@@ -122,6 +127,26 @@ export function MemberManagement({
     savePosts([newPost, ...posts]);
     setNewPostContent('');
     setNewPostType('message');
+
+    // Send notification if it's a notice
+    if (newPostType === 'notice') {
+      try {
+        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/teams/${currentTeam.id}/posts`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: newPostContent.trim(),
+            type: 'notice',
+          }),
+        });
+      } catch (error) {
+        console.error('Send team notice notification error:', error);
+        // Don't fail if notification fails
+      }
+    }
   };
 
   const handleTogglePin = (postId: string) => {

@@ -4,11 +4,13 @@ import { ShiftyLogo } from './components/ShiftyLogo';
 import { supabase } from './utils/supabase/client';
 import { motion } from 'motion/react';
 import { Shield, Lock, Loader2, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
-// Admin user emails - 여기에 관리자 이메일 추가
+// 관리자 이메일 화이트리스트
 const ADMIN_EMAILS = [
-  'admin@shifty.app',
-  // 추가 관리자 이메일을 여기에 추가하세요
+  'yeomjw0907@onecation.co.kr',
+  'yeomjw0907@naver.com',
+  'admin@shifty.app'
 ];
 
 export default function AdminApp() {
@@ -17,6 +19,7 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentHospitalId, setCurrentHospitalId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -36,6 +39,9 @@ export default function AdminApp() {
           setUser(session.user);
           setAccessToken(session.access_token);
           setIsAdmin(true);
+          
+          // 사용자의 hospital_id 가져오기
+          await loadUserHospitalId(session.access_token);
         } else {
           setError('접근 권한이 없습니다. 관리자 계정으로 로그인해주세요.');
         }
@@ -47,37 +53,55 @@ export default function AdminApp() {
     }
   };
 
+  const loadUserHospitalId = async (token: string) => {
+    try {
+      // Get user data from Supabase directly
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        // Get user profile from database
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('hospital_id')
+          .eq('auth_id', authUser.id)
+          .single();
+        
+        if (userProfile?.hospital_id) {
+          setCurrentHospitalId(userProfile.hospital_id);
+        }
+      }
+    } catch (error) {
+      console.error('Load user hospital ID error:', error);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthLoading(true);
     setError('');
+    setAuthLoading(true);
 
     try {
-      // Check if email is admin
-      if (!ADMIN_EMAILS.includes(email)) {
-        setError('접근 권한이 없습니다. 관리자 계정이 아닙니다.');
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (signInError) {
-        setError(signInError.message);
-        setAuthLoading(false);
+      if (error) {
+        setError('로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.');
         return;
       }
 
-      if (data?.session?.access_token) {
+      if (data?.user?.email && ADMIN_EMAILS.includes(data.user.email)) {
         setUser(data.user);
-        setAccessToken(data.session.access_token);
+        setAccessToken(data.session?.access_token || '');
         setIsAdmin(true);
+        await loadUserHospitalId(data.session?.access_token || '');
+        toast.success('관리자 로그인 성공');
+      } else {
+        setError('접근 권한이 없습니다. 관리자 계정으로 로그인해주세요.');
+        await supabase.auth.signOut();
       }
-    } catch (err) {
-      console.error('Login error:', err);
+    } catch (error) {
+      console.error('Login error:', error);
       setError('로그인 중 오류가 발생했습니다.');
     } finally {
       setAuthLoading(false);
@@ -89,39 +113,38 @@ export default function AdminApp() {
     setUser(null);
     setAccessToken('');
     setIsAdmin(false);
-    setEmail('');
-    setPassword('');
+    setCurrentHospitalId(null);
+    setError('');
   };
 
-  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring' }}
-            className="mb-6"
-          >
-            <ShiftyLogo size={96} animated={true} />
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center justify-center gap-2 text-white"
-          >
-            <Loader2 className="animate-spin" size={20} />
-            <span>관리자 인증 확인 중...</span>
-          </motion.div>
+          <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
+          <p className="text-white">로딩 중...</p>
         </div>
       </div>
     );
   }
 
   // Authenticated admin
-  if (isAdmin && user) {
-    return <AdminDashboard accessToken={accessToken} onBack={handleLogout} />;
+  if (isAdmin && user && accessToken) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh">
+        <AdminDashboard
+          currentUser={{
+            id: user.id,
+            name: user.user_metadata?.name || user.email?.split('@')[0] || '관리자',
+            email: user.email || '',
+            role: 'admin',
+            color: '#8B5CF6',
+          }}
+          currentHospitalId={currentHospitalId || undefined}
+          accessToken={accessToken}
+        />
+      </div>
+    );
   }
 
   // Admin login screen
@@ -160,112 +183,74 @@ export default function AdminApp() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2 }}
-          className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20"
-          style={{
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          }}
+          className="glass-card rounded-3xl p-8 toss-shadow-xl"
         >
-          <form onSubmit={handleLogin}>
-            {/* Error Message */}
+          <form onSubmit={handleLogin} className="space-y-6">
             {error && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mb-6 p-4 bg-red-500/20 border-2 border-red-500/50 rounded-xl flex items-start gap-3"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600"
               >
-                <AlertCircle size={20} className="text-red-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-red-200">{error}</p>
+                <AlertCircle size={18} />
+                <span className="text-sm">{error}</span>
               </motion.div>
             )}
 
-            <div className="space-y-4">
-              {/* Email */}
-              <div>
-                <label className="block text-sm text-slate-300 mb-2">
-                  관리자 이메일
-                </label>
-                <div className="relative">
-                  <Lock size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@shifty.app"
-                    required
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 border-2 border-white/20 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-purple-400 transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="block text-sm text-slate-300 mb-2">
-                  비밀번호
-                </label>
-                <div className="relative">
-                  <Lock size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 border-2 border-white/20 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-purple-400 transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <motion.button
-                whileHover={{ scale: authLoading ? 1 : 1.02 }}
-                whileTap={{ scale: authLoading ? 1 : 0.98 }}
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-                style={{
-                  boxShadow: '0 4px 20px rgba(139, 92, 246, 0.4)',
-                }}
-              >
-                {authLoading ? (
-                  <>
-                    <Loader2 className="animate-spin" size={20} />
-                    <span>인증 중...</span>
-                  </>
-                ) : (
-                  <>
-                    <Shield size={20} />
-                    <span>관리자 로그인</span>
-                  </>
-                )}
-              </motion.button>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                이메일
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:border-purple-400 focus:bg-white focus:outline-none transition-all"
+                placeholder="admin@shifty.app"
+              />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                비밀번호
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:border-purple-400 focus:bg-white focus:outline-none transition-all"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <motion.button
+              type="submit"
+              disabled={authLoading}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="w-full py-3 rounded-xl gradient-purple text-white font-semibold toss-shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {authLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>로그인 중...</span>
+                </>
+              ) : (
+                <>
+                  <Lock size={18} />
+                  <span>관리자 로그인</span>
+                </>
+              )}
+            </motion.button>
           </form>
 
-          {/* Info */}
-          <div className="mt-6 pt-6 border-t border-white/10">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={16} className="text-purple-400 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-slate-300">
-                <p className="mb-1">이 페이지는 Shifty 관리자 전용입니다.</p>
-                <p>일반 사용자는 접근할 수 없습니다.</p>
-              </div>
-            </div>
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <p className="text-xs text-center text-slate-500">
+              관리자 전용 페이지입니다
+            </p>
           </div>
-        </motion.div>
-
-        {/* Back to main */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="text-center mt-6"
-        >
-          <a
-            href="/"
-            className="text-sm text-slate-300 hover:text-white transition-colors underline"
-          >
-            일반 사용자 페이지로 돌아가기
-          </a>
         </motion.div>
       </div>
     </div>
