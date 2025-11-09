@@ -3957,6 +3957,16 @@ app.post("/make-server-3afd3c70/upload-avatar", async (c) => {
 });
 
 // Start server
-// Supabase Edge Function은 함수 이름을 경로에서 자동으로 제거합니다
-// /functions/v1/make-server-3afd3c70/hospitals/search -> /hospitals/search
-Deno.serve(app.fetch);
+// Supabase Edge Function 경로 처리
+// Supabase는 함수 이름을 경로에서 자동으로 제거하므로, 
+// /functions/v1/make-server-3afd3c70/hospitals/search -> /hospitals/search로 변환됩니다
+Deno.serve(async (req) => {
+  // 모든 요청을 로깅하여 디버깅
+  const url = new URL(req.url);
+  console.log("🔍 요청 URL:", req.url);
+  console.log("🔍 경로:", url.pathname);
+  console.log("🔍 메서드:", req.method);
+  
+  // Hono 앱에 직접 전달 (Supabase가 경로를 자동 처리)
+  return app.fetch(req);
+});
