@@ -18,10 +18,16 @@ app.use(
 app.use("*", logger(console.log));
 
 // Create Supabase client
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-);
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("❌ Supabase 환경 변수가 설정되지 않았습니다!");
+  console.error("SUPABASE_URL:", supabaseUrl ? "✅ 설정됨" : "❌ 없음");
+  console.error("SUPABASE_SERVICE_ROLE_KEY:", supabaseServiceKey ? "✅ 설정됨" : "❌ 없음");
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Admin emails (화이트리스트)
 const ADMIN_EMAILS = ["yeomjw0907@onecation.co.kr"];
@@ -1659,12 +1665,14 @@ app.delete(
 // HOSPITAL ROUTES
 // ======================
 
-// Search hospitals
+// Search hospitals (공개 API - 인증 불필요)
 app.get("/make-server-3afd3c70/hospitals/search", async (c) => {
   try {
     const query = c.req.query("q") || "";
     const limit = parseInt(c.req.query("limit") || "10", 10);
     const city = c.req.query("city") || "";
+
+    console.log("🔍 병원 검색 요청:", { query, limit, city });
 
     if (!query || query.trim().length === 0) {
       return c.json({ hospitals: [] });
@@ -1687,15 +1695,17 @@ app.get("/make-server-3afd3c70/hospitals/search", async (c) => {
     const { data: hospitals, error } = await searchQuery;
 
     if (error) {
-      console.error("Hospital search error:", error);
-      return c.json({ error: "Failed to search hospitals" }, 500);
+      console.error("❌ 병원 검색 오류:", error);
+      return c.json({ error: `Failed to search hospitals: ${error.message}` }, 500);
     }
+
+    console.log("✅ 병원 검색 결과:", hospitals?.length || 0, "개");
 
     return c.json({
       hospitals: hospitals || [],
     });
   } catch (error) {
-    console.error("Hospital search error:", error);
+    console.error("❌ 병원 검색 예외:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
   }
 });
