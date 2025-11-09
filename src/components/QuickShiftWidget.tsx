@@ -1,16 +1,18 @@
-import { Sun, Sunset, Moon, Coffee, Calendar } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Sun, Sunset, Moon, Coffee, Calendar, RefreshCw, Download, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useState } from 'react';
 import type { TeamMember } from '../App';
 
 interface QuickShiftWidgetProps {
   currentUser: TeamMember;
   onAddShift: (shiftType: 'day' | 'evening' | 'night' | 'off', date: Date) => void;
+  onSync?: () => void;
+  onExport?: () => void;
 }
 
-export function QuickShiftWidget({ currentUser, onAddShift }: QuickShiftWidgetProps) {
+export function QuickShiftWidget({ currentUser, onAddShift, onSync, onExport }: QuickShiftWidgetProps) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [showGoogleCalendarInfo, setShowGoogleCalendarInfo] = useState(false);
+  const [showCalendarOptions, setShowCalendarOptions] = useState(false);
 
   const shifts = [
     { type: 'day' as const, label: '데이', icon: Sun, color: 'from-amber-400 to-orange-400', bgColor: 'bg-amber-50', textColor: 'text-amber-700' },
@@ -29,14 +31,18 @@ export function QuickShiftWidget({ currentUser, onAddShift }: QuickShiftWidgetPr
     setSelectedDate(nextDate.toISOString().split('T')[0]);
   };
 
-  const handleGoogleCalendarSync = () => {
-    setShowGoogleCalendarInfo(true);
-    // 실제 구글 캘린더 연동은 백엔드에서 처리
-    // 여기서는 프론트엔드 UI만 제공
+  const handleCalendarSync = () => {
+    setShowCalendarOptions(false);
+    onSync?.();
+  };
+
+  const handleExport = () => {
+    setShowCalendarOptions(false);
+    onExport?.();
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60">
+    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 mb-20 md:mb-0">
       <h3 className="text-slate-900 mb-4">빠른 교대 근무 추가</h3>
       
       {/* Date Picker */}
@@ -69,34 +75,70 @@ export function QuickShiftWidget({ currentUser, onAddShift }: QuickShiftWidgetPr
         })}
       </div>
 
-      {/* Google Calendar Integration */}
+      {/* Calendar Integration */}
       <div className="border-t border-slate-200 pt-4">
         <button
-          onClick={handleGoogleCalendarSync}
+          onClick={() => setShowCalendarOptions(true)}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
         >
           <Calendar size={18} />
-          <span>Google Calendar 연동</span>
+          <span>캘린더 연동</span>
         </button>
 
-        {showGoogleCalendarInfo && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-4 p-4 bg-blue-50 rounded-xl"
-          >
-            <p className="text-sm text-blue-900 mb-2">🔗 Google Calendar 연동 준비 중</p>
-            <p className="text-xs text-blue-700">
-              백엔드 API가 연동되면 Google Calendar와 자동으로 동기화됩니다.
-              현재는 프론트엔드 UI만 구현되어 있으며, 실제 연동은 Cursor에서 백엔드 작업 시 완료될 예정입니다.
-            </p>
-            <div className="mt-3 space-y-1 text-xs text-blue-600">
-              <p>• 일정 자동 동기화</p>
-              <p>• 양방향 업데이트</p>
-              <p>• 알림 설정</p>
-            </div>
-          </motion.div>
-        )}
+        {/* Calendar Options Modal */}
+        <AnimatePresence>
+          {showCalendarOptions && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowCalendarOptions(false)}
+                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div className="bg-white rounded-3xl p-6 shadow-xl w-full max-w-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-slate-900 font-semibold">캘린더 연동</h3>
+                    <button
+                      onClick={() => setShowCalendarOptions(false)}
+                      className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
+                    >
+                      <X size={18} className="text-slate-600" />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleCalendarSync}
+                      className="w-full p-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/30 transition-all flex items-center gap-3"
+                    >
+                      <RefreshCw size={20} />
+                      <span>동기화</span>
+                    </motion.button>
+                    
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleExport}
+                      className="w-full p-4 rounded-xl bg-gradient-to-r from-slate-600 to-slate-700 text-white hover:shadow-lg hover:shadow-slate-500/30 transition-all flex items-center gap-3"
+                    >
+                      <Download size={20} />
+                      <span>내보내기</span>
+                    </motion.button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

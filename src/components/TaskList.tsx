@@ -34,7 +34,7 @@ export function TaskList({ tasks, selectedDate, onToggleTask, onDeleteTask, team
       month: 'long', 
       day: 'numeric' 
     };
-    return date.toLocaleDateString('en-US', options);
+    return date.toLocaleDateString('ko-KR', options);
   };
 
   const sortedTasks = [...tasks].sort((a, b) => {
@@ -168,7 +168,7 @@ export function TaskList({ tasks, selectedDate, onToggleTask, onDeleteTask, team
             Object.entries(groupedTasks).map(([dateKey, dateTasks]) => (
               <div key={dateKey} className="space-y-3">
                 <div className="text-xs text-slate-500 mt-6 first:mt-0 mb-3">
-                  {new Date(dateKey).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {new Date(dateKey).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', year: 'numeric' })}
                 </div>
                 {dateTasks.map(task => renderTask(task))}
               </div>

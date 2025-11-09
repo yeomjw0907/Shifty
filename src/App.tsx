@@ -4,6 +4,7 @@ import { TaskList } from './components/TaskList';
 import { AddTaskDialog } from './components/AddTaskDialog';
 import { TeamScheduleView } from './components/TeamScheduleView';
 import { Header } from './components/Header';
+import { BottomNavigation } from './components/BottomNavigation';
 import { AuthScreen } from './components/AuthScreen';
 import { JoinTeamDialog } from './components/JoinTeamDialog';
 import { TeamInviteDialog } from './components/TeamInviteDialog';
@@ -12,6 +13,7 @@ import { MemberManagement } from './components/MemberManagement';
 import { NoticeBar } from './components/NoticeBar';
 import { ShiftyLogo } from './components/ShiftyLogo';
 import { MyPage } from './components/MyPage';
+import { HospitalCommunity } from './components/HospitalCommunity';
 import { FloatingMenu } from './components/FloatingMenu';
 import { CalendarSyncDialog } from './components/CalendarSyncDialog';
 import { ExportDialog } from './components/ExportDialog';
@@ -71,10 +73,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
   const [currentTeam, setCurrentTeam] = useState<Team | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedMember, setSelectedMember] = useState<string>('all');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [view, setView] = useState<'calendar' | 'list' | 'team' | 'members' | 'mypage'>('team');
+  const [view, setView] = useState<'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community'>('team');
   const [teamViewTitle, setTeamViewTitle] = useState('팀 스케줄');
   const [boardPosts, setBoardPosts] = useState<any[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
@@ -186,12 +187,20 @@ export default function App() {
       }
 
       console.log('✅ Team created:', teamData.team.id);
+      console.log('📋 Team data:', teamData.team);
+      console.log('🔑 Invite code:', teamData.team.inviteCode || teamData.team.invite_code);
+      
+      // Ensure inviteCode is set
+      const teamWithInviteCode = {
+        ...teamData.team,
+        inviteCode: teamData.team.inviteCode || teamData.team.invite_code || '',
+      };
       
       // Save team ID to localStorage
-      localStorage.setItem('currentTeamId', teamData.team.id);
+      localStorage.setItem('currentTeamId', teamWithInviteCode.id);
       
       // Load team data (which will set currentUser from members)
-      await loadTeamData(teamData.team, accessToken, user);
+      await loadTeamData(teamWithInviteCode, accessToken, user);
       
       toast.success(`${teamName} 팀이 생성되었습니다!`);
       setShowCreateTeamDialog(false);
@@ -242,7 +251,6 @@ export default function App() {
         if (userMember) {
           console.log('✅ Current user member found:', userMember.name);
           setCurrentUser(userMember);
-          setSelectedMember(userMember.id);
         } else {
           console.warn('⚠️ Current user not found in members');
           console.warn('⚠️ User details:', currentAuthUser);
@@ -250,8 +258,10 @@ export default function App() {
         }
 
         // Update team with members
+        // Ensure inviteCode is set (convert from invite_code if needed)
         setCurrentTeam({
           ...team,
+          inviteCode: team.inviteCode || team.invite_code || '',
           members: validMembers,
         });
       } else {
@@ -299,17 +309,15 @@ export default function App() {
   }, []);
 
   // Team members with "all" option
-  const teamMembers: TeamMember[] = useMemo(() => [
-    { id: 'all', name: '전체 멤버', role: '팀', color: '#3182f6', email: '' },
-    ...(currentTeam?.members || []),
-  ], [currentTeam]);
+  const teamMembers: TeamMember[] = useMemo(() => 
+    currentTeam?.members || [],
+    [currentTeam]
+  );
 
-  // Filtered tasks based on selected member
+  // Filtered tasks for calendar view (current user only)
   const filteredTasks = useMemo(() => 
-    selectedMember === 'all' 
-      ? tasks 
-      : tasks.filter(task => task.assignedTo === selectedMember),
-    [tasks, selectedMember]
+    tasks.filter(task => task.assignedTo === currentUser?.id),
+    [tasks, currentUser?.id]
   );
 
   // Handlers
@@ -326,7 +334,6 @@ export default function App() {
       setAccessToken('');
       setCurrentUser(null);
       setCurrentTeam(null);
-      setSelectedMember('all');
       setTasks([]);
       localStorage.removeItem('currentTeamId');
     } catch (error) {
@@ -439,24 +446,63 @@ export default function App() {
     if (!currentUser || !currentTeam || !accessToken) return;
 
     try {
+      // Map task data to server format (remove fields that don't exist in DB)
+      const taskData: any = {
+        title: task.title,
+        description: task.description || null,
+        shiftType: task.shiftType || null,
+        date: task.date.toISOString(),
+        time: task.time || null,
+        endTime: task.endTime || null,
+        endDate: task.endDate?.toISOString() || null,
+        completed: task.completed || false,
+        assignedTo: task.assignedTo || currentUser.id,
+        // Remove category and other fields that don't exist in DB
+      };
+
       const { data, error } = await api.createTask(
         currentTeam.id,
-        {
-          ...task,
-          date: task.date.toISOString(),
-          endDate: task.endDate?.toISOString(),
-        },
+        taskData,
         accessToken
       );
       
+      console.log('📋 Create task response:', { data, error });
+      
       if (data?.task) {
-        setTasks(prev => [...prev, {
-          ...data.task,
-          date: new Date(data.task.date),
-          endDate: data.task.endDate ? new Date(data.task.endDate) : undefined,
-        }]);
+        console.log('✅ Task created:', data.task);
+        toast.success('근무가 추가되었습니다!');
+        
+        // Reload tasks from server to ensure consistency
+        const { data: tasksData, error: tasksError } = await api.getTasks(currentTeam.id, accessToken);
+        
+      if (tasksData?.tasks) {
+        console.log('📋 Reloaded tasks:', tasksData.tasks.length);
+        console.log('📋 Reloaded tasks data:', tasksData.tasks.map((t: any) => ({
+          id: t.id,
+          assignedTo: t.assignedTo,
+          date: t.date,
+          shiftType: t.shiftType
+        })));
+        setTasks(tasksData.tasks.map((task: any) => ({
+          ...task,
+          date: new Date(task.date),
+          endDate: task.endDate ? new Date(task.endDate) : undefined,
+        })));
+        } else {
+          // Fallback: add task directly to state if reload fails
+          console.log('⚠️ Failed to reload tasks, adding directly to state');
+          const newTask: Task = {
+            ...data.task,
+            date: data.task.date ? new Date(data.task.date) : new Date(),
+            endDate: data.task.endDate ? new Date(data.task.endDate) : undefined,
+            createdBy: data.task.createdBy || currentUser.id,
+          };
+          setTasks(prev => [...prev, newTask]);
+        }
       } else {
-        console.error('Add task error:', error);
+        console.error('❌ Add task error:', error);
+        console.error('❌ Response data:', data);
+        toast.error(`근무 추가 실패: ${error || '알 수 없는 오류'}`);
       }
     } catch (error) {
       console.error('Add task error:', error);
@@ -687,12 +733,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background gradient-mesh">
+    <>
+    <div className="min-h-screen bg-background gradient-mesh pb-20 md:pb-8">
       <Header 
         view={view} 
         setView={setView}
-        selectedMember={selectedMember}
-        setSelectedMember={setSelectedMember}
         teamMembers={teamMembers}
         currentUser={currentUser}
         currentTeam={currentTeam}
@@ -732,6 +777,7 @@ export default function App() {
                 onAddMember={handleAddMember}
                 onUpdateMember={handleUpdateMember}
                 onDeleteMember={handleDeleteMember}
+                onInviteTeam={() => setShowInviteDialog(true)}
               />
             </motion.div>
           ) : view === 'team' ? (
@@ -754,6 +800,18 @@ export default function App() {
                 onAddMember={handleAddMember}
               />
             </motion.div>
+          ) : view === 'community' ? (
+            <motion.div
+              key="community"
+              {...FADE_IN_UP}
+            >
+              <HospitalCommunity
+                currentUser={currentUser}
+                currentHospitalId={(currentUser as any)?.hospitalId}
+                currentHospitalName={(currentUser as any)?.hospital}
+                accessToken={accessToken}
+              />
+            </motion.div>
           ) : view === 'calendar' ? (
             <motion.div
               key="calendar"
@@ -767,7 +825,7 @@ export default function App() {
                   tasks={filteredTasks}
                   teamMembers={teamMembers}
                 />
-                <div className="space-y-6">
+                <div className="space-y-6 pb-20 md:pb-0">
                   <TaskList 
                     tasks={filteredTasks.filter(task => 
                       isDateInRange(selectedDate, task.date, task.endDate)
@@ -778,12 +836,12 @@ export default function App() {
                     teamMembers={teamMembers}
                     currentUserId={currentUser.id}
                   />
-                  {selectedMember === currentUser.id && (
-                    <QuickShiftWidget 
-                      currentUser={currentUser}
-                      onAddShift={handleQuickAddShift}
-                    />
-                  )}
+                  <QuickShiftWidget 
+                    currentUser={currentUser}
+                    onAddShift={handleQuickAddShift}
+                    onSync={() => setShowSyncDialog(true)}
+                    onExport={() => setShowExportDialog(true)}
+                  />
                 </div>
               </div>
             </motion.div>
@@ -802,12 +860,12 @@ export default function App() {
                 currentUserId={currentUser.id}
                 showAllTasks
               />
-              {selectedMember === currentUser.id && (
-                <QuickShiftWidget 
-                  currentUser={currentUser}
-                  onAddShift={handleQuickAddShift}
-                />
-              )}
+              <QuickShiftWidget 
+                currentUser={currentUser}
+                onAddShift={handleQuickAddShift}
+                onSync={() => setShowSyncDialog(true)}
+                onExport={() => setShowExportDialog(true)}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -852,8 +910,8 @@ export default function App() {
       <TeamInviteDialog
         isOpen={showInviteDialog}
         onClose={() => setShowInviteDialog(false)}
-        inviteCode={currentTeam.inviteCode}
-        teamName={currentTeam.name}
+        inviteCode={currentTeam?.inviteCode || currentTeam?.invite_code || ''}
+        teamName={currentTeam?.name || ''}
       />
 
       <CalendarSyncDialog
@@ -883,5 +941,9 @@ export default function App() {
       {/* Toast Notifications */}
       <Toaster position="top-center" richColors />
     </div>
+    
+    {/* Bottom Navigation - Mobile only */}
+    <BottomNavigation view={view} setView={setView} />
+    </>
   );
 }

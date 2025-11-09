@@ -1,450 +1,545 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { 
-  Users, 
-  Calendar, 
-  TrendingUp, 
-  Activity,
-  BarChart3,
-  PieChart,
-  Clock,
-  UserCheck,
-  RefreshCw,
-  ArrowLeft
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  Bell, Utensils, FileText, Settings, Shield, Users, BarChart3,
+  Plus, Edit2, Trash2, Save, X, Calendar, Clock, Eye, Heart, MessageCircle
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { getAdminStats } from '../utils/api';
+import { toast } from 'sonner';
+import { Card } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { FADE_IN, SCALE_IN } from '../utils/constants';
+import { formatTimestamp } from '../utils/helpers';
+import type { TeamMember } from '../App';
+import * as api from '../utils/api';
 
 interface AdminDashboardProps {
+  currentUser: TeamMember;
+  currentHospitalId?: string;
   accessToken: string;
-  onBack: () => void; // 로그아웃 함수
 }
 
-interface AdminStats {
-  totalUsers: number;
-  totalTeams: number;
-  totalTasks: number;
-  activeUsersToday: number;
-  userGrowth: {
-    week: number;
-    month: number;
-  };
-  tasksByType: {
-    day: number;
-    evening: number;
-    night: number;
-    off: number;
-  };
-  recentUsers: Array<{
-    email: string;
-    name: string;
-    createdAt: string;
-  }>;
-  teamSizes: {
-    small: number; // 1-5 members
-    medium: number; // 6-15 members
-    large: number; // 16+ members
-  };
-}
 
-export function AdminDashboard({ accessToken, onBack }: AdminDashboardProps) {
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [loading, setLoading] = useState(true);
+export function AdminDashboard({
+  currentUser,
+  currentHospitalId,
+  accessToken
+}: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'notice' | 'menu' | 'settings'>('notice');
+  const [posts, setPosts] = useState<AdminPost[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // New post form
+  const [showNewPostDialog, setShowNewPostDialog] = useState(false);
+  const [editingPost, setEditingPost] = useState<AdminPost | null>(null);
+  const [newPostTitle, setNewPostTitle] = useState('');
+  const [newPostContent, setNewPostContent] = useState('');
+  const [menuDate, setMenuDate] = useState(new Date().toISOString().split('T')[0]);
+  const [mealType, setMealType] = useState<'breakfast' | 'lunch' | 'dinner'>('lunch');
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  const loadStats = async () => {
+  // Load posts
+  const loadPosts = useCallback(async () => {
+    if (!currentHospitalId) return;
+    
     setLoading(true);
     try {
-      const { data, error } = await getAdminStats(accessToken);
-      
-      if (data?.stats) {
-        setStats(data.stats);
+      if (!currentHospitalId) {
+        setPosts([]);
+        return;
+      }
+
+      const { data, error } = await api.getAdminPosts(
+        currentHospitalId,
+        activeTab,
+        accessToken
+      );
+
+      if (error) {
+        console.error('Load admin posts error:', error);
+        toast.error('게시글을 불러오는데 실패했습니다');
+        setPosts([]);
+        return;
+      }
+
+      if (data?.posts) {
+        setPosts(data.posts.map((post: any) => ({
+          ...post,
+          createdAt: new Date(post.createdAt),
+          updatedAt: new Date(post.updatedAt),
+        })));
       } else {
-        console.error('Failed to load admin stats:', error);
+        setPosts([]);
       }
     } catch (error) {
-      console.error('Error loading admin stats:', error);
+      console.error('Load posts error:', error);
+      toast.error('게시글을 불러오는데 실패했습니다');
+      setPosts([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentHospitalId, activeTab]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <RefreshCw className="animate-spin mx-auto mb-4 text-blue-600" size={48} />
-          <p className="text-slate-600">통계 로딩 중...</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    loadPosts();
+  }, [loadPosts]);
 
-  if (!stats) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <Activity className="mx-auto mb-4 text-red-600" size={48} />
-            <p className="text-slate-700 mb-4">통계를 불러올 수 없습니다</p>
-            <button
-              onClick={loadStats}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              다시 시도
-            </button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const handleCreatePost = useCallback(async () => {
+    if (!newPostTitle.trim() || !newPostContent.trim()) {
+      toast.error('제목과 내용을 입력해주세요');
+      return;
+    }
 
-  const totalShifts = stats.tasksByType.day + stats.tasksByType.evening + 
-                      stats.tasksByType.night + stats.tasksByType.off;
+    setLoading(true);
+    try {
+      if (!currentHospitalId) {
+        toast.error('병원을 선택해주세요');
+        return;
+      }
+
+      const { data, error } = await api.createAdminPost(
+        currentHospitalId,
+        {
+          title: newPostTitle,
+          content: newPostContent,
+          postType: activeTab,
+          menuDate: activeTab === 'menu' ? menuDate : undefined,
+          mealType: activeTab === 'menu' ? mealType : undefined,
+        },
+        accessToken
+      );
+
+      if (error) {
+        console.error('Create admin post error:', error);
+        toast.error('게시글 작성에 실패했습니다');
+        return;
+      }
+
+      toast.success(activeTab === 'notice' ? '공지사항이 작성되었습니다' : '식단표가 등록되었습니다');
+      setShowNewPostDialog(false);
+      setNewPostTitle('');
+      setNewPostContent('');
+      await loadPosts();
+    } catch (error) {
+      console.error('Create post error:', error);
+      toast.error('게시글 작성에 실패했습니다');
+    } finally {
+      setLoading(false);
+    }
+  }, [newPostTitle, newPostContent, activeTab, loadPosts]);
+
+  const handleDeletePost = useCallback(async (postId: string) => {
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+
+    setLoading(true);
+    try {
+      if (!currentHospitalId) {
+        toast.error('병원을 선택해주세요');
+        return;
+      }
+
+      const { error } = await api.deleteAdminPost(
+        currentHospitalId,
+        postId,
+        accessToken
+      );
+
+      if (error) {
+        console.error('Delete admin post error:', error);
+        toast.error('게시글 삭제에 실패했습니다');
+        return;
+      }
+
+      toast.success('게시글이 삭제되었습니다');
+      await loadPosts();
+    } catch (error) {
+      console.error('Delete post error:', error);
+      toast.error('게시글 삭제에 실패했습니다');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadPosts]);
+
+  const filteredPosts = useMemo(() => posts, [posts]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-slate-900">관리자 대시보드</h1>
-                <p className="text-sm text-slate-600">Shifty 운영 현황 및 통계</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={loadStats}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <RefreshCw size={16} />
-                새로고침
-              </button>
-              <button
-                onClick={onBack}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <ArrowLeft size={16} />
-                로그아웃
-              </button>
-            </div>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">관리자 대시보드</h1>
+        <p className="text-sm text-slate-600">공지사항과 식단표를 관리하세요</p>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Key Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm">전체 사용자</CardTitle>
-                <Users className="text-blue-600" size={20} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-slate-900 mb-1">{stats.totalUsers.toLocaleString()}</div>
-                <p className="text-xs text-green-600">
-                  +{stats.userGrowth.week} 이번 주
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm">전체 팀</CardTitle>
-                <UserCheck className="text-purple-600" size={20} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-slate-900 mb-1">{stats.totalTeams.toLocaleString()}</div>
-                <p className="text-xs text-slate-600">
-                  활성 팀 수
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm">등록된 일정</CardTitle>
-                <Calendar className="text-orange-600" size={20} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-slate-900 mb-1">{stats.totalTasks.toLocaleString()}</div>
-                <p className="text-xs text-slate-600">
-                  전체 교대근무 및 일정
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm">오늘 활성 사용자</CardTitle>
-                <Activity className="text-green-600" size={20} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-slate-900 mb-1">{stats.activeUsersToday.toLocaleString()}</div>
-                <p className="text-xs text-slate-600">
-                  오늘 접속한 사용자
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Shift Type Distribution */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-          >
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <PieChart size={20} className="text-blue-600" />
-                  교대근무 유형별 분포
-                </CardTitle>
-                <CardDescription>
-                  전체 {totalShifts.toLocaleString()}개의 교대근무
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700 flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                        데이 근무
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.tasksByType.day.toLocaleString()} ({totalShifts > 0 ? Math.round((stats.tasksByType.day / totalShifts) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-yellow-400"
-                        style={{ width: `${totalShifts > 0 ? (stats.tasksByType.day / totalShifts) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700 flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-orange-400" />
-                        이브닝 근무
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.tasksByType.evening.toLocaleString()} ({totalShifts > 0 ? Math.round((stats.tasksByType.evening / totalShifts) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-orange-400"
-                        style={{ width: `${totalShifts > 0 ? (stats.tasksByType.evening / totalShifts) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700 flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-purple-400" />
-                        나이트 근무
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.tasksByType.night.toLocaleString()} ({totalShifts > 0 ? Math.round((stats.tasksByType.night / totalShifts) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-purple-400"
-                        style={{ width: `${totalShifts > 0 ? (stats.tasksByType.night / totalShifts) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700 flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-slate-400" />
-                        휴무
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.tasksByType.off.toLocaleString()} ({totalShifts > 0 ? Math.round((stats.tasksByType.off / totalShifts) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-slate-400"
-                        style={{ width: `${totalShifts > 0 ? (stats.tasksByType.off / totalShifts) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Team Size Distribution */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-          >
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 size={20} className="text-purple-600" />
-                  팀 규모별 분포
-                </CardTitle>
-                <CardDescription>
-                  팀 크기에 따른 분류
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700">
-                        소규모 팀 (1-5명)
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.teamSizes.small.toLocaleString()}팀
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-green-400"
-                        style={{ 
-                          width: `${stats.totalTeams > 0 ? (stats.teamSizes.small / stats.totalTeams) * 100 : 0}%` 
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700">
-                        중규모 팀 (6-15명)
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.teamSizes.medium.toLocaleString()}팀
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-blue-400"
-                        style={{ 
-                          width: `${stats.totalTeams > 0 ? (stats.teamSizes.medium / stats.totalTeams) * 100 : 0}%` 
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-slate-700">
-                        대규모 팀 (16명+)
-                      </span>
-                      <span className="text-sm text-slate-900">
-                        {stats.teamSizes.large.toLocaleString()}팀
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-purple-400"
-                        style={{ 
-                          width: `${stats.totalTeams > 0 ? (stats.teamSizes.large / stats.totalTeams) * 100 : 0}%` 
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 p-4 bg-blue-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp size={16} className="text-blue-600" />
-                    <span className="text-sm text-blue-900">성장 추세</span>
-                  </div>
-                  <p className="text-xs text-blue-700">
-                    이번 주: +{stats.userGrowth.week}명 / 이번 달: +{stats.userGrowth.month}명
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-
-        {/* Recent Users */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
+      {/* Tabs */}
+      <div className="flex gap-2 p-1.5 glass-card rounded-2xl">
+        <button
+          onClick={() => setActiveTab('notice')}
+          className={`relative px-6 py-3 rounded-xl transition-all flex-1 ${
+            activeTab === 'notice'
+              ? 'text-blue-600'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
         >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock size={20} className="text-green-600" />
-                최근 가입 사용자
-              </CardTitle>
-              <CardDescription>
-                최근 10명의 신규 사용자
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left py-3 px-4 text-sm text-slate-700">이름</th>
-                      <th className="text-left py-3 px-4 text-sm text-slate-700">이메일</th>
-                      <th className="text-left py-3 px-4 text-sm text-slate-700">가입일</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.recentUsers.map((user, index) => (
-                      <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-3 px-4 text-sm text-slate-900">{user.name}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600">{user.email}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600">
-                          {new Date(user.createdAt).toLocaleDateString('ko-KR')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {activeTab === 'notice' && (
+            <motion.div
+              layoutId="adminActiveTab"
+              className="absolute inset-0 bg-white rounded-xl toss-shadow"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="relative flex flex-col items-center gap-1">
+            <Bell size={20} />
+            <span className="text-xs">공지사항</span>
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('menu')}
+          className={`relative px-6 py-3 rounded-xl transition-all flex-1 ${
+            activeTab === 'menu'
+              ? 'text-blue-600'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          {activeTab === 'menu' && (
+            <motion.div
+              layoutId="adminActiveTab"
+              className="absolute inset-0 bg-white rounded-xl toss-shadow"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="relative flex flex-col items-center gap-1">
+            <Utensils size={20} />
+            <span className="text-xs">식단표</span>
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`relative px-6 py-3 rounded-xl transition-all flex-1 ${
+            activeTab === 'settings'
+              ? 'text-blue-600'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          {activeTab === 'settings' && (
+            <motion.div
+              layoutId="adminActiveTab"
+              className="absolute inset-0 bg-white rounded-xl toss-shadow"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="relative flex flex-col items-center gap-1">
+            <Settings size={20} />
+            <span className="text-xs">설정</span>
+          </span>
+        </button>
+      </div>
+
+      {/* Content */}
+      <AnimatePresence mode="wait">
+        {activeTab === 'notice' && (
+          <motion.div
+            key="notice"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            {/* Actions */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-slate-900">공지사항 관리</h2>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setEditingPost(null);
+                  setNewPostTitle('');
+                  setNewPostContent('');
+                  setShowNewPostDialog(true);
+                }}
+                className="px-4 py-2 rounded-xl gradient-blue text-white toss-shadow flex items-center gap-2"
+              >
+                <Plus size={18} />
+                <span>새 공지사항</span>
+              </motion.button>
+            </div>
+
+            {/* Posts List */}
+            {loading ? (
+              <div className="glass-card rounded-2xl p-12 text-center">
+                <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-slate-600">로딩 중...</p>
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </main>
+            ) : filteredPosts.length === 0 ? (
+              <div className="glass-card rounded-2xl p-12 text-center">
+                <FileText size={48} className="mx-auto mb-4 text-slate-300" />
+                <p className="text-slate-600 mb-2">아직 공지사항이 없습니다</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredPosts.map((post) => (
+                  <Card key={post.id} className="p-6 toss-shadow">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-slate-900 mb-2">{post.title}</h3>
+                        <p className="text-slate-700 mb-4 whitespace-pre-wrap">{post.content}</p>
+                        <div className="flex items-center gap-4 text-sm text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Clock size={14} />
+                            {formatTimestamp(post.createdAt)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Eye size={14} />
+                            {post.viewCount}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Heart size={14} />
+                            {post.likeCount}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MessageCircle size={14} />
+                            {post.commentCount}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setEditingPost(post);
+                            setNewPostTitle(post.title);
+                            setNewPostContent(post.content);
+                            setShowNewPostDialog(true);
+                          }}
+                          className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center"
+                        >
+                          <Edit2 size={18} />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleDeletePost(post.id)}
+                          className="w-10 h-10 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center"
+                        >
+                          <Trash2 size={18} />
+                        </motion.button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        ) : activeTab === 'menu' && (
+          <motion.div
+            key="menu"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            {/* Actions */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-slate-900">식단표 관리</h2>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setEditingPost(null);
+                  setNewPostTitle('');
+                  setNewPostContent('');
+                  setMenuDate(new Date().toISOString().split('T')[0]);
+                  setMealType('lunch');
+                  setShowNewPostDialog(true);
+                }}
+                className="px-4 py-2 rounded-xl gradient-blue text-white toss-shadow flex items-center gap-2"
+              >
+                <Plus size={18} />
+                <span>새 식단표</span>
+              </motion.button>
+            </div>
+
+            {/* Posts List */}
+            {loading ? (
+              <div className="glass-card rounded-2xl p-12 text-center">
+                <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-slate-600">로딩 중...</p>
+              </div>
+            ) : filteredPosts.length === 0 ? (
+              <div className="glass-card rounded-2xl p-12 text-center">
+                <Utensils size={48} className="mx-auto mb-4 text-slate-300" />
+                <p className="text-slate-600 mb-2">아직 식단표가 없습니다</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredPosts.map((post) => (
+                  <Card key={post.id} className="p-6 toss-shadow">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-slate-900 mb-2">{post.title}</h3>
+                        <p className="text-slate-700 mb-4 whitespace-pre-wrap">{post.content}</p>
+                        <div className="flex items-center gap-4 text-sm text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Clock size={14} />
+                            {formatTimestamp(post.createdAt)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Eye size={14} />
+                            {post.viewCount}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setEditingPost(post);
+                            setNewPostTitle(post.title);
+                            setNewPostContent(post.content);
+                            setShowNewPostDialog(true);
+                          }}
+                          className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center"
+                        >
+                          <Edit2 size={18} />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleDeletePost(post.id)}
+                          className="w-10 h-10 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center"
+                        >
+                          <Trash2 size={18} />
+                        </motion.button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="settings"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-4"
+          >
+            <Card className="p-6 toss-shadow">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">커뮤니티 설정</h2>
+              <p className="text-slate-600">설정 기능은 추후 구현 예정입니다.</p>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* New/Edit Post Dialog */}
+      <AnimatePresence>
+        {showNewPostDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              {...FADE_IN}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setShowNewPostDialog(false)}
+            />
+            <motion.div
+              {...SCALE_IN}
+              className="relative glass-card rounded-3xl toss-shadow-xl w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-slate-900">
+                  {editingPost ? '수정하기' : activeTab === 'notice' ? '새 공지사항' : '새 식단표'}
+                </h2>
+                <button
+                  onClick={() => setShowNewPostDialog(false)}
+                  className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+                >
+                  <X size={20} className="text-slate-600" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {activeTab === 'menu' && (
+                  <>
+                    <div>
+                      <Label className="block text-sm mb-2 text-slate-700">날짜</Label>
+                      <Input
+                        type="date"
+                        value={menuDate}
+                        onChange={(e) => setMenuDate(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div>
+                      <Label className="block text-sm mb-2 text-slate-700">식사 종류</Label>
+                      <div className="flex gap-2">
+                        {(['breakfast', 'lunch', 'dinner'] as const).map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => setMealType(type)}
+                            className={`px-4 py-2 rounded-xl text-sm transition-all ${
+                              mealType === type
+                                ? 'bg-blue-50 text-blue-600 toss-shadow'
+                                : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {type === 'breakfast' ? '아침' : type === 'lunch' ? '점심' : '저녁'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <Label className="block text-sm mb-2 text-slate-700">
+                    제목 <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="text"
+                    value={newPostTitle}
+                    onChange={(e) => setNewPostTitle(e.target.value)}
+                    placeholder={activeTab === 'notice' ? '공지사항 제목' : '식단표 제목'}
+                    className="w-full"
+                  />
+                </div>
+
+                <div>
+                  <Label className="block text-sm mb-2 text-slate-700">
+                    내용 <span className="text-red-500">*</span>
+                  </Label>
+                  <textarea
+                    value={newPostContent}
+                    onChange={(e) => setNewPostContent(e.target.value)}
+                    placeholder={activeTab === 'notice' ? '공지사항 내용' : '식단표 내용'}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-400 focus:bg-white focus:outline-none resize-none transition-all min-h-[200px]"
+                    rows={8}
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    onClick={handleCreatePost}
+                    disabled={loading || !newPostTitle.trim() || !newPostContent.trim()}
+                    className="flex-1 gradient-blue text-white"
+                  >
+                    <Save size={18} className="mr-2" />
+                    {editingPost ? '수정하기' : '작성하기'}
+                  </Button>
+                  <Button
+                    onClick={() => setShowNewPostDialog(false)}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    취소
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

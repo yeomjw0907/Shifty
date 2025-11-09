@@ -38,6 +38,19 @@ function generateInviteCode(): string {
   return code;
 }
 
+// Convert team data from database format (snake_case) to API format (camelCase)
+function formatTeamResponse(teamData: any): any {
+  if (!teamData) return null;
+  
+  return {
+    ...teamData,
+    inviteCode: teamData.invite_code || teamData.inviteCode,
+    createdBy: teamData.created_by || teamData.createdBy,
+    createdAt: teamData.created_at || teamData.createdAt,
+    updatedAt: teamData.updated_at || teamData.updatedAt,
+  };
+}
+
 // Helper: Generate random color
 function generateMemberColor(): string {
   const colors = [
@@ -206,7 +219,31 @@ async function initializeTables() {
 
       CREATE INDEX IF NOT EXISTS idx_privacy_consents_user_id ON privacy_consents(user_id);
 
-      -- 6. Auto-update trigger function
+      -- 6. hospitals table
+      CREATE TABLE IF NOT EXISTS hospitals (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(200) NOT NULL,
+        name_kr VARCHAR(200),
+        address VARCHAR(500),
+        city VARCHAR(50),
+        district VARCHAR(50),
+        phone VARCHAR(20),
+        type VARCHAR(50),
+        beds INTEGER,
+        latitude DECIMAL(10, 8),
+        longitude DECIMAL(11, 8),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_hospitals_name ON hospitals(name);
+      CREATE INDEX IF NOT EXISTS idx_hospitals_name_kr ON hospitals(name_kr);
+      CREATE INDEX IF NOT EXISTS idx_hospitals_city ON hospitals(city);
+      CREATE INDEX IF NOT EXISTS idx_hospitals_district ON hospitals(district);
+      CREATE INDEX IF NOT EXISTS idx_hospitals_type ON hospitals(type);
+      CREATE INDEX IF NOT EXISTS idx_hospitals_search ON hospitals USING gin(to_tsvector('korean', COALESCE(name_kr, name)));
+
+      -- 7. Auto-update trigger function
       CREATE OR REPLACE FUNCTION update_updated_at_column()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -231,6 +268,12 @@ async function initializeTables() {
       DROP TRIGGER IF EXISTS update_tasks_updated_at ON tasks;
       CREATE TRIGGER update_tasks_updated_at
         BEFORE UPDATE ON tasks
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column();
+
+      DROP TRIGGER IF EXISTS update_hospitals_updated_at ON hospitals;
+      CREATE TRIGGER update_hospitals_updated_at
+        BEFORE UPDATE ON hospitals
         FOR EACH ROW
         EXECUTE FUNCTION update_updated_at_column();
     `;
@@ -337,6 +380,8 @@ app.post("/make-server-3afd3c70/auth/signup", async (c) => {
       password,
       name,
       hospital,
+      hospital_id,
+      hospital_auth_code,
       department,
       position,
       phone,
@@ -388,6 +433,44 @@ app.post("/make-server-3afd3c70/auth/signup", async (c) => {
       );
     }
 
+    // Verify hospital authentication if provided
+    let verifiedHospitalId = null;
+    if (hospital_id) {
+      // Check if hospital exists
+      const { data: hospitalData, error: hospitalError } = await supabase
+        .from("hospitals")
+        .select("id, email_domain, auth_code")
+        .eq("id", hospital_id)
+        .single();
+
+      if (hospitalError || !hospitalData) {
+        return c.json(
+          { error: "병원 정보를 찾을 수 없습니다" },
+          400,
+        );
+      }
+
+      // Verify authentication method
+      const emailDomain = email.split("@")[1];
+      const isEmailDomainMatch = hospitalData.email_domain && 
+        emailDomain === hospitalData.email_domain;
+      const isAuthCodeMatch = hospital_auth_code && 
+        hospitalData.auth_code && 
+        hospital_auth_code === hospitalData.auth_code;
+
+      if (!isEmailDomainMatch && !isAuthCodeMatch) {
+        // If hospital requires authentication but not provided, return error
+        if (hospitalData.email_domain || hospitalData.auth_code) {
+          return c.json(
+            { error: "병원 인증이 필요합니다. 이메일 도메인 또는 인증 코드를 확인해주세요" },
+            400,
+          );
+        }
+      }
+
+      verifiedHospitalId = hospitalData.id;
+    }
+
     // Create user profile in users table
     const { data: userData, error: userError } = await supabase
       .from("users")
@@ -396,6 +479,7 @@ app.post("/make-server-3afd3c70/auth/signup", async (c) => {
         email: authData.user.email,
         name,
         hospital: hospital || null,
+        hospital_id: verifiedHospitalId,
         department: department || null,
         position: position || null,
         phone: phone || null,
@@ -448,6 +532,36 @@ app.post("/make-server-3afd3c70/auth/signup", async (c) => {
       userData.id,
       userData.email,
     );
+
+    // Create or get hospital community
+    let communityId = null;
+    if (verifiedHospitalId) {
+      // Check if community exists
+      const { data: existingCommunity } = await supabase
+        .from("hospital_communities")
+        .select("id")
+        .eq("hospital_id", verifiedHospitalId)
+        .single();
+
+      if (existingCommunity) {
+        communityId = existingCommunity.id;
+      } else {
+        // Create new community
+        const { data: newCommunity, error: communityError } = await supabase
+          .from("hospital_communities")
+          .insert({
+            hospital_id: verifiedHospitalId,
+            name: hospital || "병원 커뮤니티",
+            description: `${hospital} 커뮤니티`,
+          })
+          .select()
+          .single();
+
+        if (!communityError && newCommunity) {
+          communityId = newCommunity.id;
+        }
+      }
+    }
 
     // Create default team for the user
     const inviteCode = generateInviteCode();
@@ -674,7 +788,11 @@ app.post("/make-server-3afd3c70/teams", async (c) => {
 
     console.log("✅ Creator added as owner:", memberData);
 
-    return c.json({ team: teamData });
+    // Format team response (convert invite_code to inviteCode)
+    const formattedTeam = formatTeamResponse(teamData);
+    console.log("📋 Formatted team response:", formattedTeam);
+
+    return c.json({ team: formattedTeam });
   } catch (error) {
     console.error("Create team error:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
@@ -728,7 +846,9 @@ app.get("/make-server-3afd3c70/teams/:teamId", async (c) => {
       return c.json({ error: "Team not found" }, 404);
     }
 
-    return c.json({ team: teamData });
+    // Format team response (convert invite_code to inviteCode)
+    const formattedTeam = formatTeamResponse(teamData);
+    return c.json({ team: formattedTeam });
   } catch (error) {
     console.error("Get team error:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
@@ -814,7 +934,9 @@ app.post("/make-server-3afd3c70/teams/join", async (c) => {
       color: generateMemberColor(),
     });
 
-    return c.json({ team: teamData });
+    // Format team response (convert invite_code to inviteCode)
+    const formattedTeam = formatTeamResponse(teamData);
+    return c.json({ team: formattedTeam });
   } catch (error) {
     console.error("Join team error:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
@@ -852,7 +974,9 @@ app.patch("/make-server-3afd3c70/teams/:teamId", async (c) => {
       return c.json({ error: "Failed to update team" }, 500);
     }
 
-    return c.json({ team: teamData });
+    // Format team response (convert invite_code to inviteCode)
+    const formattedTeam = formatTeamResponse(teamData);
+    return c.json({ team: formattedTeam });
   } catch (error) {
     console.error("Update team error:", error);
     return c.json({ error: `Server error: ${error}` }, 500);
@@ -1281,24 +1405,127 @@ app.post(
       const teamId = c.req.param("teamId");
       const taskData = await c.req.json();
 
+      // Map client fields to database fields
+      // Convert date from ISO string to DATE format
+      let taskDate: string;
+      if (taskData.date) {
+        const dateObj = new Date(taskData.date);
+        taskDate = dateObj.toISOString().split('T')[0]; // Extract YYYY-MM-DD
+      } else {
+        return c.json({ error: "Date is required" }, 400);
+      }
+
+      // Resolve user_id from assignedTo
+      // assignedTo might be auth_id, so we need to find the actual users.id
+      let targetUserId = userData.id; // Default to current user
+      
+      if (taskData.assignedTo) {
+        // Check if assignedTo is already a users.id (UUID format)
+        // If it's an auth_id, we need to look it up
+        const { data: assignedUser, error: lookupError } = await supabase
+          .from("users")
+          .select("id")
+          .or(`id.eq.${taskData.assignedTo},auth_id.eq.${taskData.assignedTo}`)
+          .single();
+        
+        if (assignedUser && !lookupError) {
+          targetUserId = assignedUser.id;
+          console.log("✅ Resolved assignedTo to user_id:", targetUserId);
+        } else {
+          console.log("⚠️ Could not resolve assignedTo, using current user:", taskData.assignedTo);
+          // Use current user if lookup fails
+          targetUserId = userData.id;
+        }
+      }
+
+      // Map fields: camelCase -> snake_case
+      // Only include fields that exist in the database schema
+      const dbTaskData: any = {
+        team_id: teamId,
+        user_id: targetUserId, // Use resolved user_id
+        title: taskData.title || '',
+        description: taskData.description || null,
+        shift_type: taskData.shiftType || taskData.shift_type || null,
+        date: taskDate,
+        start_time: taskData.time || taskData.start_time || null,
+        end_time: taskData.endTime || taskData.end_time || null,
+        completed: taskData.completed || false,
+        is_all_day: taskData.isAllDay || taskData.is_all_day || false,
+        color: taskData.color || null,
+        location: taskData.location || null,
+        notes: taskData.notes || null,
+        // Explicitly exclude fields that don't exist in DB:
+        // - category (not in DB schema)
+        // - assignedTo (mapped to user_id)
+        // - endDate (not in DB schema, only date, start_time, end_time exist)
+      };
+
+      // Handle endDate if provided (convert to end_time or separate date field)
+      if (taskData.endDate) {
+        const endDateObj = new Date(taskData.endDate);
+        // If endDate is different from date, we might need to handle it differently
+        // For now, we'll just use it for end_time calculation if needed
+        if (taskData.time) {
+          // If there's a time, we might want to calculate end_time
+          // For simplicity, we'll just store the date part
+        }
+      }
+
+      console.log("📋 Creating task with data:", dbTaskData);
+
       const { data: task, error } = await supabase
         .from("tasks")
-        .insert({
-          team_id: teamId,
-          user_id: userData.id,
-          ...taskData,
-        })
-        .select()
+        .insert(dbTaskData)
+        .select(`
+          *,
+          users!inner (
+            id,
+            auth_id
+          )
+        `)
         .single();
 
       if (error) {
+        console.error("❌ Failed to create task:", error);
         return c.json(
           { error: `Failed to create task: ${error.message}` },
           500,
         );
       }
 
-      return c.json({ task });
+      // Get auth_id from users table for assignedTo
+      // assignedTo should be auth_id (not user_id) to match frontend
+      let assignedToAuthId = task.user_id; // Fallback to user_id
+      if (task.users && task.users.auth_id) {
+        assignedToAuthId = task.users.auth_id;
+      } else {
+        // If users relation not loaded, query separately
+        const { data: userData } = await supabase
+          .from("users")
+          .select("auth_id")
+          .eq("id", task.user_id)
+          .single();
+        if (userData?.auth_id) {
+          assignedToAuthId = userData.auth_id;
+        }
+      }
+
+      // Format task response (convert snake_case to camelCase)
+      const formattedTask = {
+        ...task,
+        assignedTo: assignedToAuthId, // Use auth_id instead of user_id
+        shiftType: task.shift_type,
+        date: task.date ? new Date(task.date).toISOString() : null,
+        time: task.start_time || null,
+        endTime: task.end_time || null,
+        endDate: task.end_date || null,
+        isAllDay: task.is_all_day || false,
+        createdBy: assignedToAuthId, // Use auth_id for consistency
+      };
+
+      console.log("✅ Task created successfully:", formattedTask.id);
+
+      return c.json({ task: formattedTask });
     } catch (error) {
       console.error("Create task error:", error);
       return c.json({ error: `Server error: ${error}` }, 500);
@@ -1325,8 +1552,9 @@ app.get(
         .select(
           `
         *,
-        users (
+        users!inner (
           id,
+          auth_id,
           name,
           avatar_url
         )
@@ -1336,10 +1564,25 @@ app.get(
         .order("date", { ascending: true });
 
       if (error) {
+        console.error("❌ Failed to get tasks:", error);
         return c.json({ error: "Failed to get tasks" }, 500);
       }
 
-      return c.json({ tasks });
+      // Format tasks response (convert snake_case to camelCase)
+      // Use auth_id for assignedTo to match frontend expectations
+      const formattedTasks = (tasks || []).map((task: any) => ({
+        ...task,
+        assignedTo: task.users?.auth_id || task.user_id, // Use auth_id if available
+        shiftType: task.shift_type,
+        date: task.date ? new Date(task.date).toISOString() : null,
+        time: task.start_time || null,
+        endTime: task.end_time || null,
+        endDate: task.end_date || null,
+        isAllDay: task.is_all_day || false,
+        createdBy: task.users?.auth_id || task.user_id, // Use auth_id for consistency
+      }));
+
+      return c.json({ tasks: formattedTasks });
     } catch (error) {
       console.error("Get tasks error:", error);
       return c.json({ error: `Server error: ${error}` }, 500);
@@ -1411,6 +1654,72 @@ app.delete(
     }
   },
 );
+
+// ======================
+// HOSPITAL ROUTES
+// ======================
+
+// Search hospitals
+app.get("/make-server-3afd3c70/hospitals/search", async (c) => {
+  try {
+    const query = c.req.query("q") || "";
+    const limit = parseInt(c.req.query("limit") || "10", 10);
+    const city = c.req.query("city") || "";
+
+    if (!query || query.trim().length === 0) {
+      return c.json({ hospitals: [] });
+    }
+
+    // Build search query
+    let searchQuery = supabase
+      .from("hospitals")
+      .select("id, name, name_kr, city, district, type, address, phone")
+      .or(`name.ilike.%${query}%,name_kr.ilike.%${query}%`)
+      .limit(limit);
+
+    // Filter by city if provided
+    if (city) {
+      searchQuery = searchQuery.eq("city", city);
+    }
+
+    const { data: hospitals, error } = await searchQuery;
+
+    if (error) {
+      console.error("Hospital search error:", error);
+      return c.json({ error: "Failed to search hospitals" }, 500);
+    }
+
+    return c.json({
+      hospitals: hospitals || [],
+    });
+  } catch (error) {
+    console.error("Hospital search error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
+
+// Get hospital by ID
+app.get("/make-server-3afd3c70/hospitals/:id", async (c) => {
+  try {
+    const hospitalId = c.req.param("id");
+
+    const { data: hospital, error } = await supabase
+      .from("hospitals")
+      .select("*")
+      .eq("id", hospitalId)
+      .single();
+
+    if (error) {
+      console.error("Get hospital error:", error);
+      return c.json({ error: "Hospital not found" }, 404);
+    }
+
+    return c.json({ hospital });
+  } catch (error) {
+    console.error("Get hospital error:", error);
+    return c.json({ error: `Server error: ${error}` }, 500);
+  }
+});
 
 // ======================
 // ADMIN ROUTES

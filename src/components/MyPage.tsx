@@ -10,6 +10,8 @@ import { toast } from 'sonner@2.0.3';
 import type { TeamMember, Team } from '../App';
 import * as api from '../utils/api';
 import { projectId } from '../utils/supabase/info';
+import { supabase } from '../utils/supabase/client';
+import { HospitalSearchInput } from './HospitalSearchInput';
 
 interface MyPageProps {
   currentUser: TeamMember;
@@ -24,6 +26,8 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
   const [editedName, setEditedName] = useState(currentUser.name);
   const [isEditingRole, setIsEditingRole] = useState(false);
   const [editedRole, setEditedRole] = useState(currentUser.role);
+  const [isEditingHospital, setIsEditingHospital] = useState(false);
+  const [editedHospital, setEditedHospital] = useState((currentUser as any).hospital || '');
   const [isEditingColor, setIsEditingColor] = useState(false);
   const [selectedColor, setSelectedColor] = useState(currentUser.color);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -96,6 +100,40 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
   const handleCancelRoleEdit = () => {
     setEditedRole(currentUser.role);
     setIsEditingRole(false);
+  };
+
+  const handleSaveHospital = async () => {
+    if (!editedHospital.trim()) {
+      toast.error('병원명을 입력해주세요');
+      return;
+    }
+
+    try {
+      // Update user hospital through API
+      const { data: userData } = await supabase
+        .from('users')
+        .update({ hospital: editedHospital.trim() })
+        .eq('id', currentUser.id)
+        .select()
+        .single();
+
+      if (!userData) {
+        toast.error('병원 정보 변경 실패');
+        return;
+      }
+
+      onUpdateUser({ hospital: editedHospital.trim() } as any);
+      setIsEditingHospital(false);
+      toast.success('병원 정보가 변경되었습니다');
+    } catch (error) {
+      console.error('Save hospital error:', error);
+      toast.error('병원 정보 변경 중 오류가 발생했습니다');
+    }
+  };
+
+  const handleCancelHospitalEdit = () => {
+    setEditedHospital((currentUser as any).hospital || '');
+    setIsEditingHospital(false);
   };
 
   const handleSaveColor = async () => {
@@ -368,6 +406,55 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
               )}
             </div>
 
+            {/* Hospital */}
+            <div>
+              <Label className="text-slate-700 mb-2 block">근무 병원</Label>
+              {isEditingHospital ? (
+                <div className="space-y-2">
+                  <HospitalSearchInput
+                    label=""
+                    value={editedHospital}
+                    onChange={setEditedHospital}
+                    placeholder="병원명을 검색하세요"
+                    helperText="병원명을 입력하면 자동완성됩니다"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveHospital}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Check size={16} className="mr-1" />
+                      저장
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCancelHospitalEdit}
+                    >
+                      <X size={16} className="mr-1" />
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl group">
+                  <div className="flex items-center gap-3">
+                    <Building2 size={18} className="text-slate-500" />
+                    <span className="text-slate-900">{(currentUser as any).hospital || '병원 정보 없음'}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setIsEditingHospital(true)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Edit2 size={14} />
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {/* Email */}
             <div>
               <Label className="text-slate-700 mb-2 block">이메일</Label>
@@ -487,7 +574,7 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
               <Label className="text-slate-700 mb-2 block">초대 코드</Label>
               <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
                 <code className="text-lg tracking-widest text-blue-600">
-                  {currentTeam.inviteCode}
+                  {currentTeam.inviteCode || currentTeam.invite_code || '코드 없음'}
                 </code>
               </div>
               <p className="text-xs text-slate-500 mt-2">

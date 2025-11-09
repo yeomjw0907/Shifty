@@ -6,6 +6,7 @@ import { signUp } from '../utils/api';
 import { ShiftyLogo } from './ShiftyLogo';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { TossInput } from './TossInput';
+import { HospitalSearchInput } from './HospitalSearchInput';
 import { toast } from 'sonner';
 
 interface AuthScreenProps {
@@ -19,6 +20,8 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [name, setName] = useState('');
   const [hospital, setHospital] = useState('');
+  const [selectedHospital, setSelectedHospital] = useState<any>(null);
+  const [hospitalAuthCode, setHospitalAuthCode] = useState('');
   const [department, setDepartment] = useState('');
   const [position, setPosition] = useState('');
   const [phone, setPhone] = useState('');
@@ -226,6 +229,8 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         password, 
         name, 
         hospital,
+        selectedHospital?.id,
+        hospitalAuthCode || undefined,
         department || undefined,
         position || undefined,
         phone || undefined
@@ -425,17 +430,39 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                     />
 
                     {/* Hospital */}
-                    <TossInput
+                    <HospitalSearchInput
                       label="근무 병원"
-                      icon={Building2}
-                      type="text"
                       value={hospital}
-                      onChange={(e) => handleHospitalChange(e.target.value)}
-                      placeholder="예) 서울대학교병원"
+                      onChange={handleHospitalChange}
+                      onSelect={(hospital) => {
+                        setSelectedHospital(hospital);
+                        setHospital(hospital.name_kr || hospital.name);
+                      }}
+                      placeholder="병원명을 검색하세요"
                       required
                       error={hospitalError}
                       success={!!hospital && !hospitalError}
+                      helperText="병원명을 입력하면 자동완성됩니다"
                     />
+
+                    {/* Hospital Auth Code (Optional) */}
+                    {selectedHospital && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-2"
+                      >
+                        <TossInput
+                          label="병원 인증 코드 (선택사항)"
+                          type="text"
+                          value={hospitalAuthCode}
+                          onChange={(e) => setHospitalAuthCode(e.target.value)}
+                          placeholder="병원에서 제공한 인증 코드를 입력하세요"
+                          helperText="병원에서 제공한 인증 코드가 있으면 입력하세요"
+                        />
+                      </motion.div>
+                    )}
 
                     {/* Department & Position */}
                     <div className="grid grid-cols-2 gap-3">

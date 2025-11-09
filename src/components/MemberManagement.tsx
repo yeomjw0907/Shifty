@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, Plus, X, Edit3, Trash2, Mail, CheckCircle, 
   MessageSquare, Send, Pin, Clock, User, Shield, UserPlus,
-  Sparkles
+  Sparkles, Share2
 } from 'lucide-react';
 import type { TeamMember } from '../App';
 import { AVATAR_COLORS, STORAGE_KEYS, FADE_IN, SCALE_IN } from '../utils/constants';
@@ -24,6 +24,7 @@ interface MemberManagementProps {
   onAddMember: (member: Omit<TeamMember, 'id'>) => void;
   onUpdateMember: (memberId: string, updates: Partial<TeamMember>) => void;
   onDeleteMember: (memberId: string) => void;
+  onInviteTeam?: () => void;
 }
 
 export function MemberManagement({ 
@@ -31,10 +32,12 @@ export function MemberManagement({
   currentUser, 
   onAddMember,
   onUpdateMember,
-  onDeleteMember 
+  onDeleteMember,
+  onInviteTeam
 }: MemberManagementProps) {
   const [activeTab, setActiveTab] = useState<'members' | 'board'>('members');
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   
   // New member form
@@ -219,7 +222,7 @@ export function MemberManagement({
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
-              onClick={() => setIsAddMemberOpen(true)}
+              onClick={() => setIsAddOptionOpen(true)}
               className="w-full p-8 rounded-2xl border-2 border-dashed border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all flex items-center justify-center gap-3 text-slate-600 hover:text-blue-600 glass"
             >
               <Plus size={24} />
@@ -462,6 +465,20 @@ export function MemberManagement({
         )}
       </AnimatePresence>
 
+      {/* Add Option Selection Modal */}
+      <AddOptionModal
+        isOpen={isAddOptionOpen}
+        onClose={() => setIsAddOptionOpen(false)}
+        onSelectAddMember={() => {
+          setIsAddOptionOpen(false);
+          setIsAddMemberOpen(true);
+        }}
+        onSelectInviteTeam={() => {
+          setIsAddOptionOpen(false);
+          onInviteTeam?.();
+        }}
+      />
+
       {/* Add/Edit Member Modals */}
       <MemberFormModal
         isOpen={isAddMemberOpen}
@@ -626,6 +643,91 @@ function MemberFormModal({
                   <span>{submitLabel}</span>
                 </motion.button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// Add Option Selection Modal Component
+interface AddOptionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectAddMember: () => void;
+  onSelectInviteTeam: () => void;
+}
+
+function AddOptionModal({
+  isOpen,
+  onClose,
+  onSelectAddMember,
+  onSelectInviteTeam,
+}: AddOptionModalProps) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            {...FADE_IN}
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          
+          <motion.div
+            {...SCALE_IN}
+            className="relative glass-card rounded-3xl toss-shadow-xl w-full max-w-md p-8"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-slate-900">팀원 추가 방법 선택</h2>
+              <button
+                onClick={onClose}
+                className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} className="text-slate-600" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onSelectAddMember}
+                className="w-full p-6 rounded-2xl border-2 border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all flex items-center gap-4 text-left glass-card hover:toss-shadow-lg"
+              >
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white flex-shrink-0 toss-shadow">
+                  <UserPlus size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-slate-900 font-medium mb-1">새 팀원 추가</h3>
+                  <p className="text-sm text-slate-600">이름, 역할, 이메일을 직접 입력하여 팀원을 추가합니다</p>
+                </div>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onSelectInviteTeam}
+                className="w-full p-6 rounded-2xl border-2 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all flex items-center gap-4 text-left glass-card hover:toss-shadow-lg"
+              >
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white flex-shrink-0 toss-shadow">
+                  <Share2 size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-slate-900 font-medium mb-1">팀 초대하기</h3>
+                  <p className="text-sm text-slate-600">초대 코드를 공유하여 팀원이 직접 참여하도록 합니다</p>
+                </div>
+              </motion.button>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <button
+                onClick={onClose}
+                className="w-full px-6 py-3 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+              >
+                취소
+              </button>
             </div>
           </motion.div>
         </div>

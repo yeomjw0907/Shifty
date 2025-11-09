@@ -224,7 +224,9 @@ const ADMIN_EMAILS = [
 - 큰 border-radius (16-24px)
 - 블루-퍼플 그라데이션
 
-**자세한 내용**: [TOSS_INPUT_CHANGELOG.md](./TOSS_INPUT_CHANGELOG.md)
+**자세한 내용**: 
+- [TOSS_INPUT_CHANGELOG.md](./TOSS_INPUT_CHANGELOG.md) - 디자인 시스템 상세
+- [guidelines/Guidelines.md](./guidelines/Guidelines.md) - **유지보수 가이드** ⭐
 
 ---
 

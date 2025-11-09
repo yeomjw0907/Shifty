@@ -1,14 +1,12 @@
-import { Calendar as CalendarIcon, List, Users, User, LogOut, Edit2, Check, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, User, Edit2, Check, X, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState } from 'react';
 import type { TeamMember, Team, Task } from '../App';
 import { ShiftyLogoSimple } from './ShiftyLogo';
 
 interface HeaderProps {
-  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage';
-  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage') => void;
-  selectedMember: string;
-  setSelectedMember: (memberId: string) => void;
+  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community';
+  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community') => void;
   teamMembers: TeamMember[];
   currentUser: TeamMember;
   currentTeam: Team;
@@ -17,7 +15,7 @@ interface HeaderProps {
   tasks: Task[];
 }
 
-export function Header({ view, setView, selectedMember, setSelectedMember, teamMembers, currentUser, currentTeam, onLogout, onUpdateTeamName, tasks }: HeaderProps) {
+export function Header({ view, setView, teamMembers, currentUser, currentTeam, onLogout, onUpdateTeamName, tasks }: HeaderProps) {
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
   const [editedTeamName, setEditedTeamName] = useState(currentTeam.name);
 
@@ -92,61 +90,33 @@ export function Header({ view, setView, selectedMember, setSelectedMember, teamM
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Member Selector */}
-            <div className="relative">
-              <select
-                value={selectedMember}
-                onChange={(e) => setSelectedMember(e.target.value)}
-                className="appearance-none bg-slate-50 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 border-0"
-              >
-                {teamMembers.map(member => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                <User size={16} className="text-slate-500" />
-              </div>
-            </div>
-
-            {/* View Tabs */}
-            <div className="flex items-center gap-1.5 bg-slate-100 rounded-xl p-1">
+            {/* View Tabs - Desktop only */}
+            <div className="hidden md:flex items-center gap-1.5 bg-slate-100 rounded-xl p-1">
               <TabButton
                 active={view === 'team'}
                 onClick={() => setView('team')}
                 icon={<Users size={16} />}
-                label="팀"
+                label="팀 스케줄"
               />
               <TabButton
                 active={view === 'calendar'}
                 onClick={() => setView('calendar')}
                 icon={<CalendarIcon size={16} />}
-                label="캘린더"
-              />
-              <TabButton
-                active={view === 'list'}
-                onClick={() => setView('list')}
-                icon={<List size={16} />}
-                label="목록"
+                label="마이 스케줄"
               />
               <TabButton
                 active={view === 'members'}
                 onClick={() => setView('members')}
                 icon={<User size={16} />}
-                label="관리"
+                label="팀 관리"
+              />
+              <TabButton
+                active={view === 'community'}
+                onClick={() => setView('community')}
+                icon={<MessageSquare size={16} />}
+                label="커뮤니티"
               />
             </div>
-
-            {/* Logout Button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={onLogout}
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-red-50 transition-colors flex items-center gap-2 group"
-            >
-              <LogOut size={16} className="text-slate-600 group-hover:text-red-600 transition-colors" />
-            </motion.button>
           </div>
         </div>
       </div>
