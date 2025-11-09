@@ -53,12 +53,14 @@ export function HospitalSearchInput({
     setIsSearching(true);
     setHasSearched(false);
     searchTimeoutRef.current = setTimeout(async () => {
+      console.log('🔍 병원 검색 시작:', searchQuery);
       const { data, error } = await searchHospitals(searchQuery, 10);
       
       if (error) {
-        console.error('Hospital search error:', error);
+        console.error('❌ 병원 검색 오류:', error);
         setHospitals([]);
       } else {
+        console.log('✅ 병원 검색 결과:', data?.hospitals?.length || 0, '개');
         setHospitals(data?.hospitals || []);
         setIsOpen(true);
       }

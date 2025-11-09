@@ -443,22 +443,28 @@ export async function searchHospitals(
 
     // Server endpoint uses /make-server-3afd3c70/hospitals/search
     const hospitalApiBase = API_BASE.replace('/server', '/make-server-3afd3c70');
-    const response = await fetch(`${hospitalApiBase}/hospitals/search?${params.toString()}`, {
+    const url = `${hospitalApiBase}/hospitals/search?${params.toString()}`;
+    console.log('🌐 API 호출:', url);
+    
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
+    console.log('📡 API 응답 상태:', response.status, response.statusText);
     const data = await response.json();
+    console.log('📦 API 응답 데이터:', data);
 
     if (!response.ok) {
+      console.error('❌ API 오류:', data);
       return { error: data.error || 'Failed to search hospitals' };
     }
 
     return { data };
   } catch (error) {
-    console.error('Search hospitals error:', error);
+    console.error('❌ Search hospitals error:', error);
     return { error: String(error) };
   }
 }

@@ -1671,11 +1671,13 @@ app.get("/make-server-3afd3c70/hospitals/search", async (c) => {
     }
 
     // Build search query
+    // Supabase .or() 메서드는 % 와일드카드를 사용합니다
+    const sanitizedQuery = query.trim();
     let searchQuery = supabase
       .from("hospitals")
       .select("id, name, name_kr, city, district, type, address, phone")
-      .or(`name.ilike.%${query}%,name_kr.ilike.%${query}%`)
-      .limit(limit);
+      .or(`name.ilike.%${sanitizedQuery}%,name_kr.ilike.%${sanitizedQuery}%`)
+      .limit(Math.min(limit, 50)); // 최대 50개로 제한
 
     // Filter by city if provided
     if (city) {
