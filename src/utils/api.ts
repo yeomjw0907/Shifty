@@ -360,3 +360,131 @@ export async function deleteAdminUser(
     return { error: String(error) };
   }
 }
+
+// =====================
+// AUTH API
+// =====================
+
+export async function signUp(
+  email: string,
+  password: string,
+  name: string,
+  hospital?: string,
+  hospitalId?: string,
+  hospitalAuthCode?: string,
+  department?: string,
+  position?: string,
+  phone?: string
+): Promise<ApiResponse<{ user: any; team: any }>> {
+  try {
+    const authApiBase = API_BASE.replace('/server', '/make-server-3afd3c70');
+    const response = await fetch(`${authApiBase}/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        name,
+        hospital,
+        hospital_id: hospitalId,
+        hospital_auth_code: hospitalAuthCode,
+        department,
+        position,
+        phone,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || 'Failed to sign up' };
+    }
+
+    return { data };
+  } catch (error) {
+    console.error('Sign up error:', error);
+    return { error: String(error) };
+  }
+}
+
+// =====================
+// HOSPITAL API
+// =====================
+
+export interface Hospital {
+  id: string;
+  name: string;
+  name_kr?: string;
+  address?: string;
+  city?: string;
+  district?: string;
+  phone?: string;
+  type?: string;
+  beds?: number;
+  latitude?: number;
+  longitude?: number;
+}
+
+export async function searchHospitals(
+  query: string,
+  limit: number = 10,
+  city?: string
+): Promise<ApiResponse<{ hospitals: Hospital[] }>> {
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString(),
+    });
+    if (city) {
+      params.append('city', city);
+    }
+
+    // Server endpoint uses /make-server-3afd3c70/hospitals/search
+    const hospitalApiBase = API_BASE.replace('/server', '/make-server-3afd3c70');
+    const response = await fetch(`${hospitalApiBase}/hospitals/search?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || 'Failed to search hospitals' };
+    }
+
+    return { data };
+  } catch (error) {
+    console.error('Search hospitals error:', error);
+    return { error: String(error) };
+  }
+}
+
+export async function getHospital(
+  hospitalId: string
+): Promise<ApiResponse<{ hospital: Hospital }>> {
+  try {
+    // Server endpoint uses /make-server-3afd3c70/hospitals/:id
+    const hospitalApiBase = API_BASE.replace('/server', '/make-server-3afd3c70');
+    const response = await fetch(`${hospitalApiBase}/hospitals/${hospitalId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || 'Failed to get hospital' };
+    }
+
+    return { data };
+  } catch (error) {
+    console.error('Get hospital error:', error);
+    return { error: String(error) };
+  }
+}
