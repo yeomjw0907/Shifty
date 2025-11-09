@@ -3957,37 +3957,6 @@ app.post("/make-server-3afd3c70/upload-avatar", async (c) => {
 });
 
 // Start server
-// Supabase Edge Function의 기본 JWT 인증을 우회하기 위해 커스텀 핸들러 사용
-Deno.serve(async (req) => {
-  const url = new URL(req.url);
-  let pathname = url.pathname;
-  
-  // Supabase Edge Function 경로에서 함수 이름 제거
-  // /functions/v1/make-server-3afd3c70/hospitals/search -> /hospitals/search
-  const functionName = 'make-server-3afd3c70';
-  const prefix = `/functions/v1/${functionName}`;
-  if (pathname.startsWith(prefix)) {
-    pathname = pathname.slice(prefix.length) || '/';
-  }
-  
-  // 공개 API 경로 목록
-  const publicPaths = [
-    '/hospitals/search',
-    '/health',
-  ];
-  
-  // 공개 경로인 경우 경로를 수정한 새 요청 생성
-  if (publicPaths.some(path => pathname.startsWith(path))) {
-    const newUrl = new URL(req.url);
-    newUrl.pathname = pathname;
-    const newReq = new Request(newUrl.toString(), {
-      method: req.method,
-      headers: req.headers,
-      body: req.body,
-    });
-    return app.fetch(newReq);
-  }
-  
-  // 그 외 경로는 기본 처리
-  return app.fetch(req);
-});
+// Supabase Edge Function은 함수 이름을 경로에서 자동으로 제거합니다
+// /functions/v1/make-server-3afd3c70/hospitals/search -> /hospitals/search
+Deno.serve(app.fetch);
