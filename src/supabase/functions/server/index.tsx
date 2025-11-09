@@ -3959,9 +3959,16 @@ app.post("/make-server-3afd3c70/upload-avatar", async (c) => {
 // Start server
 // Supabase Edge Function의 기본 JWT 인증을 우회하기 위해 커스텀 핸들러 사용
 Deno.serve(async (req) => {
-  // 공개 API 경로는 JWT 인증 없이 처리
   const url = new URL(req.url);
-  const pathname = url.pathname;
+  let pathname = url.pathname;
+  
+  // Supabase Edge Function 경로에서 함수 이름 제거
+  // /functions/v1/make-server-3afd3c70/hospitals/search -> /hospitals/search
+  const functionName = 'make-server-3afd3c70';
+  const prefix = `/functions/v1/${functionName}`;
+  if (pathname.startsWith(prefix)) {
+    pathname = pathname.slice(prefix.length) || '/';
+  }
   
   // 공개 API 경로 목록
   const publicPaths = [
@@ -3969,11 +3976,18 @@ Deno.serve(async (req) => {
     '/health',
   ];
   
-  // 공개 경로인 경우 바로 Hono 앱으로 전달
-  if (publicPaths.some(path => pathname.includes(path))) {
-    return app.fetch(req);
+  // 공개 경로인 경우 경로를 수정한 새 요청 생성
+  if (publicPaths.some(path => pathname.startsWith(path))) {
+    const newUrl = new URL(req.url);
+    newUrl.pathname = pathname;
+    const newReq = new Request(newUrl.toString(), {
+      method: req.method,
+      headers: req.headers,
+      body: req.body,
+    });
+    return app.fetch(newReq);
   }
   
-  // 그 외 경로는 기본 처리 (Supabase가 JWT 검증)
+  // 그 외 경로는 기본 처리
   return app.fetch(req);
 });
