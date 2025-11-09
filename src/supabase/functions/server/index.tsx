@@ -24,7 +24,7 @@ const supabase = createClient(
 );
 
 // Admin emails (화이트리스트)
-const ADMIN_EMAILS = ["admin@shifty.app", "admin@98point7.com", "yeomjw0907@onecation.co.kr", "yeomjw0907@naver.com"];
+const ADMIN_EMAILS = ["yeomjw0907@onecation.co.kr"];
 
 // Helper: Generate random invite code
 function generateInviteCode(): string {

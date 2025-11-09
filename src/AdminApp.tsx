@@ -8,9 +8,7 @@ import { toast } from 'sonner';
 
 // 관리자 이메일 화이트리스트
 const ADMIN_EMAILS = [
-  'yeomjw0907@onecation.co.kr',
-  'yeomjw0907@naver.com',
-  'admin@shifty.app'
+  'yeomjw0907@onecation.co.kr'
 ];
 
 export default function AdminApp() {
