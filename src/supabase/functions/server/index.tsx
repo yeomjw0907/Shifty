@@ -18,13 +18,15 @@ app.use(
 app.use("*", logger(console.log));
 
 // Create Supabase client
+// SUPABASE_URL은 Supabase가 자동으로 제공합니다
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// SUPABASE_SERVICE_ROLE_KEY는 SUPABASE_ 접두사 때문에 다른 이름으로 설정해야 합니다
+const supabaseServiceKey = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
 
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error("❌ Supabase 환경 변수가 설정되지 않았습니다!");
   console.error("SUPABASE_URL:", supabaseUrl ? "✅ 설정됨" : "❌ 없음");
-  console.error("SUPABASE_SERVICE_ROLE_KEY:", supabaseServiceKey ? "✅ 설정됨" : "❌ 없음");
+  console.error("SERVICE_ROLE_KEY:", supabaseServiceKey ? "✅ 설정됨" : "❌ 없음");
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
