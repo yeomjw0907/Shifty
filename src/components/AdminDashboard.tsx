@@ -13,7 +13,7 @@ import { Label } from './ui/label';
 import { FADE_IN, SCALE_IN } from '../utils/constants';
 import { formatTimestamp } from '../utils/helpers';
 import type { TeamMember } from '../App';
-import * as api from '../utils/api';
+// API removed - using local state only
 import { UserManagementView } from './UserManagementView';
 
 interface AdminPost {
@@ -63,21 +63,11 @@ export function AdminDashboard({
         return;
       }
 
-      const { data, error } = await api.getAdminPosts(
-        currentHospitalId,
-        activeTab,
-        accessToken
-      );
-
-      if (error) {
-        console.error('Load admin posts error:', error);
-        toast.error('게시글을 불러오는데 실패했습니다');
-        setPosts([]);
-        return;
-      }
-
-      if (data?.posts) {
-        setPosts(data.posts.map((post: any) => ({
+      // 로컬 스토리지에서 게시글 불러오기
+      const savedPosts = localStorage.getItem(`adminPosts_${currentHospitalId}_${activeTab}`);
+      if (savedPosts) {
+        const posts = JSON.parse(savedPosts);
+        setPosts(posts.map((post: any) => ({
           ...post,
           createdAt: new Date(post.createdAt),
           updatedAt: new Date(post.updatedAt),
@@ -111,24 +101,24 @@ export function AdminDashboard({
         return;
       }
 
-      const { data, error } = await api.createAdminPost(
-        currentHospitalId,
-        {
-          title: newPostTitle,
-          content: newPostContent,
-          postType: activeTab,
-          menuDate: activeTab === 'menu' ? menuDate : undefined,
-          mealType: activeTab === 'menu' ? mealType : undefined,
-        },
-        accessToken
-      );
-
-      if (error) {
-        console.error('Create admin post error:', error);
-        toast.error('게시글 작성에 실패했습니다');
-        return;
-      }
-
+      // 로컬 스토리지에 게시글 저장
+      const newPost: AdminPost = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title: newPostTitle,
+        content: newPostContent,
+        postType: activeTab,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        viewCount: 0,
+        likeCount: 0,
+        commentCount: 0,
+      };
+      
+      const savedPosts = localStorage.getItem(`adminPosts_${currentHospitalId}_${activeTab}`);
+      const posts = savedPosts ? JSON.parse(savedPosts) : [];
+      posts.push(newPost);
+      localStorage.setItem(`adminPosts_${currentHospitalId}_${activeTab}`, JSON.stringify(posts));
+      
       toast.success(activeTab === 'notice' ? '공지사항이 작성되었습니다' : '식단표가 등록되었습니다');
       setShowNewPostDialog(false);
       setNewPostTitle('');
@@ -152,18 +142,14 @@ export function AdminDashboard({
         return;
       }
 
-      const { error } = await api.deleteAdminPost(
-        currentHospitalId,
-        postId,
-        accessToken
-      );
-
-      if (error) {
-        console.error('Delete admin post error:', error);
-        toast.error('게시글 삭제에 실패했습니다');
-        return;
+      // 로컬 스토리지에서 게시글 삭제
+      const savedPosts = localStorage.getItem(`adminPosts_${currentHospitalId}_${activeTab}`);
+      if (savedPosts) {
+        const posts = JSON.parse(savedPosts);
+        const filtered = posts.filter((p: AdminPost) => p.id !== postId);
+        localStorage.setItem(`adminPosts_${currentHospitalId}_${activeTab}`, JSON.stringify(filtered));
       }
-
+      
       toast.success('게시글이 삭제되었습니다');
       await loadPosts();
     } catch (error) {

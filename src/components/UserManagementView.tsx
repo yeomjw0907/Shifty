@@ -10,18 +10,39 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { FADE_IN, SCALE_IN } from '../utils/constants';
-import * as api from '../utils/api';
+// API removed - using local state only
+
+interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  hospital?: string;
+  department?: string;
+  position?: string;
+  createdAt: string;
+}
+
+interface UserDetails {
+  id: string;
+  name: string;
+  email: string;
+  hospital?: string;
+  department?: string;
+  position?: string;
+  phone?: string;
+  createdAt: string;
+}
 
 export function UserManagementView({ accessToken }: { accessToken: string }) {
-  const [users, setUsers] = useState<api.AdminUser[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [userDetails, setUserDetails] = useState<api.UserDetails | null>(null);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editingUser, setEditingUser] = useState<api.AdminUser | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -35,16 +56,20 @@ export function UserManagementView({ accessToken }: { accessToken: string }) {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await api.getAdminUsers(page, 50, searchQuery || undefined, accessToken);
-      if (error) {
-        console.error('Load users error:', error);
-        toast.error('사용자 목록을 불러오는데 실패했습니다');
+      // 로컬 스토리지에서 사용자 불러오기
+      const savedUsers = localStorage.getItem('users');
+      if (savedUsers) {
+        const users = JSON.parse(savedUsers);
+        const filtered = searchQuery 
+          ? users.filter((u: AdminUser) => 
+              u.name.includes(searchQuery) || u.email.includes(searchQuery)
+            )
+          : users;
+        setUsers(filtered.slice((page - 1) * 50, page * 50));
+        setTotal(filtered.length);
+      } else {
         setUsers([]);
-        return;
-      }
-      if (data) {
-        setUsers(data.users);
-        setTotal(data.total);
+        setTotal(0);
       }
     } catch (error) {
       console.error('Load users error:', error);
@@ -58,15 +83,15 @@ export function UserManagementView({ accessToken }: { accessToken: string }) {
   const loadUserDetails = useCallback(async (userId: string) => {
     setLoading(true);
     try {
-      const { data, error } = await api.getAdminUserDetails(userId, accessToken);
-      if (error) {
-        console.error('Load user details error:', error);
-        toast.error('사용자 정보를 불러오는데 실패했습니다');
-        return;
-      }
-      if (data) {
-        setUserDetails(data);
-        setSelectedUserId(userId);
+      // 로컬 스토리지에서 사용자 상세 정보 불러오기
+      const savedUsers = localStorage.getItem('users');
+      if (savedUsers) {
+        const users = JSON.parse(savedUsers);
+        const user = users.find((u: AdminUser) => u.id === userId);
+        if (user) {
+          setUserDetails(user as UserDetails);
+          setSelectedUserId(userId);
+        }
       }
     } catch (error) {
       console.error('Load user details error:', error);
@@ -76,7 +101,7 @@ export function UserManagementView({ accessToken }: { accessToken: string }) {
     }
   }, [accessToken]);
 
-  const handleEditUser = (user: api.AdminUser) => {
+  const handleEditUser = (user: AdminUser) => {
     setEditingUser(user);
     setEditForm({
       name: user.name,
@@ -95,11 +120,15 @@ export function UserManagementView({ accessToken }: { accessToken: string }) {
 
     setLoading(true);
     try {
-      const { data, error } = await api.updateAdminUser(editingUser.id, editForm, accessToken);
-      if (error) {
-        console.error('Update user error:', error);
-        toast.error('사용자 정보 수정에 실패했습니다');
-        return;
+      // 로컬 스토리지에서 사용자 정보 수정
+      const savedUsers = localStorage.getItem('users');
+      if (savedUsers) {
+        const users = JSON.parse(savedUsers);
+        const index = users.findIndex((u: AdminUser) => u.id === editingUser.id);
+        if (index !== -1) {
+          users[index] = { ...users[index], ...editForm };
+          localStorage.setItem('users', JSON.stringify(users));
+        }
       }
       toast.success('사용자 정보가 수정되었습니다');
       setShowEditDialog(false);
@@ -121,11 +150,12 @@ export function UserManagementView({ accessToken }: { accessToken: string }) {
 
     setLoading(true);
     try {
-      const { error } = await api.deleteAdminUser(userId, accessToken);
-      if (error) {
-        console.error('Delete user error:', error);
-        toast.error('사용자 삭제에 실패했습니다');
-        return;
+      // 로컬 스토리지에서 사용자 삭제
+      const savedUsers = localStorage.getItem('users');
+      if (savedUsers) {
+        const users = JSON.parse(savedUsers);
+        const filtered = users.filter((u: AdminUser) => u.id !== userId);
+        localStorage.setItem('users', JSON.stringify(filtered));
       }
       toast.success('사용자가 삭제되었습니다');
       await loadUsers();

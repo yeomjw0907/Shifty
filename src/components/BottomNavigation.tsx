@@ -1,10 +1,10 @@
-import { Calendar as CalendarIcon, Users, User, MessageSquare } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useIsMobile } from './ui/use-mobile';
 
 interface BottomNavigationProps {
-  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community';
-  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community') => void;
+  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage';
+  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage') => void;
 }
 
 export function BottomNavigation({ view, setView }: BottomNavigationProps) {
@@ -27,11 +27,6 @@ export function BottomNavigation({ view, setView }: BottomNavigationProps) {
       id: 'members' as const,
       icon: User,
       label: '팀 관리',
-    },
-    {
-      id: 'community' as const,
-      icon: MessageSquare,
-      label: '커뮤니티',
     },
   ];
 

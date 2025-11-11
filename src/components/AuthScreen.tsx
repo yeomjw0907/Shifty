@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, User, LogIn, UserPlus, Sparkles, Building2, Briefcase, Phone, CheckCircle2, AlertCircle } from 'lucide-react';
-import { supabase } from '../utils/supabase/client';
-import { signUp } from '../utils/api';
+// Supabase and API removed - using local state only
 import { ShiftyLogo } from './ShiftyLogo';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { TossInput } from './TossInput';
@@ -29,6 +28,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const loadingRef = useRef(false);
 
   // Real-time validation errors
   const [emailError, setEmailError] = useState('');
@@ -162,53 +162,79 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     }
     
     setLoading(true);
+    loadingRef.current = true;
     setError('');
 
     console.log('🔐 로그인 시도:', { email, passwordLength: password.length });
 
-    try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      console.log('📊 로그인 응답:', { 
-        hasData: !!data, 
-        hasSession: !!data?.session,
-        hasUser: !!data?.user,
-        error: signInError 
-      });
-
-      if (signInError) {
-        console.error('❌ 로그인 에러:', signInError);
-        toast.error(signInError.message === 'Invalid login credentials' 
-          ? '이메일 또는 비밀번호가 올바르지 않습니다' 
-          : signInError.message, {
+    // 타임아웃 추가 (30초)
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isTimedOut = false;
+    
+    timeoutId = setTimeout(() => {
+      if (loadingRef.current) {
+        isTimedOut = true;
+        console.error('❌ 로그인 타임아웃');
+        toast.error('로그인 요청 시간이 초과되었습니다. 네트워크 연결을 확인해주세요.', {
           icon: <AlertCircle size={18} />,
         });
         setLoading(false);
+        loadingRef.current = false;
+      }
+    }, 30000);
+
+    try {
+      // 간단한 로컬 인증 (실제로는 백엔드 연동 필요)
+      // 로컬 스토리지에서 사용자 확인
+      const savedUsers = JSON.parse(localStorage.getItem('users') || '[]');
+      const user = savedUsers.find((u: any) => u.email === email && u.password === password);
+      
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      if (isTimedOut) {
         return;
       }
 
-      if (data?.session?.access_token) {
-        console.log('✅ 로그인 성공!', { userId: data.user?.id });
-        toast.success('로그인 성공!', {
-          icon: <CheckCircle2 size={18} />,
-        });
-        onAuthSuccess(data.user, data.session.access_token);
-      } else {
-        console.warn('⚠️ 세션이 없음:', data);
-        toast.error('로그인 정보를 확인할 수 없습니다', {
+      if (!user) {
+        toast.error('이메일 또는 비밀번호가 올바르지 않습니다', {
           icon: <AlertCircle size={18} />,
         });
+        setLoading(false);
+        loadingRef.current = false;
+        return;
       }
-    } catch (err) {
+
+      // 로그인 성공
+      const userData = {
+        id: user.id,
+        email: user.email,
+        user_metadata: { name: user.name },
+      };
+      
+      toast.success('로그인 성공!', {
+        icon: <CheckCircle2 size={18} />,
+      });
+      onAuthSuccess(userData, 'local-token');
+    } catch (err: any) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       console.error('💥 Sign in error:', err);
-      toast.error('로그인 중 오류가 발생했습니다', {
+      
+      let errorMessage = '로그인 중 오류가 발생했습니다';
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        errorMessage = '네트워크 연결에 실패했습니다. 인터넷 연결을 확인해주세요.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      toast.error(errorMessage, {
         icon: <AlertCircle size={18} />,
       });
-    } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -220,103 +246,101 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     }
 
     setLoading(true);
+    loadingRef.current = true;
     setError('');
 
-    try {
-      // Create user via API
-      const { data: signUpData, error: signUpError } = await signUp(
-        email, 
-        password, 
-        name, 
-        hospital,
-        selectedHospital?.id,
-        hospitalAuthCode || undefined,
-        department || undefined,
-        position || undefined,
-        phone || undefined
-      );
+    console.log('🔐 회원가입 시도:', { email, name, hospital });
 
-      if (signUpError) {
-        // Check if it's a table not found error
-        if (signUpError.includes('테이블이 생성되지 않았습니다') || signUpError.includes('SETUP_TABLES')) {
-          toast.error(signUpError, {
-            icon: <AlertCircle size={18} />,
-            duration: 10000, // 10초 동안 표시
-          });
-        } else {
-          toast.error(signUpError, {
-            icon: <AlertCircle size={18} />,
-          });
-        }
-        setLoading(false);
-        return;
-      }
-
-      // Then sign in
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) {
-        toast.error('회원가입은 완료되었으나 자동 로그인에 실패했습니다. 다시 로그인해주세요.', {
+    // 타임아웃 추가 (60초 - 회원가입은 더 오래 걸릴 수 있음)
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isTimedOut = false;
+    
+    timeoutId = setTimeout(() => {
+      if (loadingRef.current) {
+        isTimedOut = true;
+        console.error('❌ 회원가입 타임아웃');
+        toast.error('회원가입 요청 시간이 초과되었습니다. 네트워크 연결을 확인해주세요.', {
           icon: <AlertCircle size={18} />,
         });
-        setMode('signin');
         setLoading(false);
+        loadingRef.current = false;
+      }
+    }, 60000);
+
+    try {
+      // 간단한 로컬 회원가입
+      const savedUsers = JSON.parse(localStorage.getItem('users') || '[]');
+      
+      // 중복 확인
+      if (savedUsers.find((u: any) => u.email === email)) {
+        toast.error('이미 사용 중인 이메일입니다', {
+          icon: <AlertCircle size={18} />,
+        });
+        setLoading(false);
+        loadingRef.current = false;
         return;
       }
 
-      if (data?.session?.access_token) {
-        toast.success('회원가입이 완료되었습니다!', {
-          icon: <CheckCircle2 size={18} />,
-        });
-        onAuthSuccess(data.user, data.session.access_token);
+      // 새 사용자 생성
+      const newUser = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        email,
+        password, // 실제로는 해시화해야 함
+        name,
+        hospital,
+        department,
+        position,
+        phone,
+        createdAt: new Date().toISOString(),
+      };
+
+      savedUsers.push(newUser);
+      localStorage.setItem('users', JSON.stringify(savedUsers));
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
-    } catch (err) {
-      console.error('Sign up error:', err);
-      toast.error('회원가입 중 오류가 발생했습니다', {
+
+      if (isTimedOut) {
+        return;
+      }
+
+      // 자동 로그인
+      const userData = {
+        id: newUser.id,
+        email: newUser.email,
+        user_metadata: { name: newUser.name },
+      };
+      
+      toast.success('회원가입이 완료되었습니다!', {
+        icon: <CheckCircle2 size={18} />,
+      });
+      onAuthSuccess(userData, 'local-token');
+    } catch (err: any) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      console.error('💥 Sign up error:', err);
+      
+      let errorMessage = '회원가입 중 오류가 발생했습니다';
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        errorMessage = '네트워크 연결에 실패했습니다. 인터넷 연결을 확인해주세요.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      toast.error(errorMessage, {
         icon: <AlertCircle size={18} />,
       });
-    } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
   const handleSocialLogin = async (provider: 'google' | 'kakao' | 'naver') => {
-    setLoading(true);
-    setError('');
-
-    try {
-      const providerMap = {
-        google: 'google' as const,
-        kakao: 'kakao' as const,
-        naver: 'naver' as const,
-      };
-
-      const { data, error: socialError } = await supabase.auth.signInWithOAuth({
-        provider: providerMap[provider],
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-
-      if (socialError) {
-        toast.error(socialError.message, {
-          icon: <AlertCircle size={18} />,
-        });
-        setLoading(false);
-        return;
-      }
-
-      // OAuth will redirect, so we don't need to do anything here
-    } catch (err) {
-      console.error('Social login error:', err);
-      toast.error('소셜 로그인 중 오류가 발생했습니다', {
-        icon: <AlertCircle size={18} />,
-      });
-      setLoading(false);
-    }
+    toast.info('소셜 로그인은 백엔드 연동이 필요합니다', {
+      icon: <AlertCircle size={18} />,
+    });
   };
 
   return (

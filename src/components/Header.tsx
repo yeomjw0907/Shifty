@@ -1,12 +1,12 @@
-import { Calendar as CalendarIcon, Users, User, Edit2, Check, X, MessageSquare } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, User, Edit2, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState } from 'react';
 import type { TeamMember, Team, Task } from '../App';
 import { ShiftyLogoSimple } from './ShiftyLogo';
 
 interface HeaderProps {
-  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community';
-  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage' | 'community') => void;
+  view: 'calendar' | 'list' | 'team' | 'members' | 'mypage';
+  setView: (view: 'calendar' | 'list' | 'team' | 'members' | 'mypage') => void;
   teamMembers: TeamMember[];
   currentUser: TeamMember;
   currentTeam: Team;
@@ -109,12 +109,6 @@ export function Header({ view, setView, teamMembers, currentUser, currentTeam, o
                 onClick={() => setView('members')}
                 icon={<User size={16} />}
                 label="팀 관리"
-              />
-              <TabButton
-                active={view === 'community'}
-                onClick={() => setView('community')}
-                icon={<MessageSquare size={16} />}
-                label="커뮤니티"
               />
             </div>
           </div>

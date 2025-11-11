@@ -8,9 +8,7 @@ import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner@2.0.3';
 import type { TeamMember, Team } from '../App';
-import * as api from '../utils/api';
-import { projectId } from '../utils/supabase/info';
-import { supabase } from '../utils/supabase/client';
+// Supabase and API removed - using local state only
 import { HospitalSearchInput } from './HospitalSearchInput';
 
 interface MyPageProps {
@@ -51,20 +49,7 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
     }
 
     try {
-      // Update member name through API
-      const { data, error } = await api.updateMember(
-        currentTeam.id,
-        currentUser.id,
-        { name: editedName.trim() },
-        accessToken
-      );
-
-      if (error) {
-        toast.error('이름 변경 실패');
-        console.error('Update name error:', error);
-        return;
-      }
-
+      // 로컬 상태로만 업데이트
       onUpdateUser({ name: editedName.trim() });
       setIsEditingName(false);
       toast.success('이름이 변경되었습니다');
@@ -81,19 +66,7 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
     }
 
     try {
-      const { data, error } = await api.updateMember(
-        currentTeam.id,
-        currentUser.id,
-        { role: editedRole.trim() },
-        accessToken
-      );
-
-      if (error) {
-        toast.error('직책 변경 실패');
-        console.error('Update role error:', error);
-        return;
-      }
-
+      // 로컬 상태로만 업데이트
       onUpdateUser({ role: editedRole.trim() });
       setIsEditingRole(false);
       toast.success('직책이 변경되었습니다');
@@ -120,19 +93,7 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
     }
 
     try {
-      // Update user hospital through API
-      const { data: userData } = await supabase
-        .from('users')
-        .update({ hospital: editedHospital.trim() })
-        .eq('id', currentUser.id)
-        .select()
-        .single();
-
-      if (!userData) {
-        toast.error('병원 정보 변경 실패');
-        return;
-      }
-
+      // 로컬 상태로만 업데이트
       onUpdateUser({ hospital: editedHospital.trim() } as any);
       setIsEditingHospital(false);
       toast.success('병원 정보가 변경되었습니다');
@@ -149,19 +110,7 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
 
   const handleSaveColor = async () => {
     try {
-      const { data, error } = await api.updateMember(
-        currentTeam.id,
-        currentUser.id,
-        { color: selectedColor },
-        accessToken
-      );
-
-      if (error) {
-        toast.error('프로필 컬러 변경 실패');
-        console.error('Update color error:', error);
-        return;
-      }
-
+      // 로컬 상태로만 업데이트
       onUpdateUser({ color: selectedColor });
       setIsEditingColor(false);
       toast.success('프로필 컬러가 변경되었습니다');
@@ -190,44 +139,22 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
     setUploadingImage(true);
 
     try {
-      // Upload to server
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', currentUser.id);
-
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/upload-avatar`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
-      const { avatarUrl } = await response.json();
-
-      // Update member with avatar URL
-      const { data, error } = await api.updateMember(
-        currentTeam.id,
-        currentUser.id,
-        { avatar: avatarUrl },
-        accessToken
-      );
-
-      if (error) {
-        toast.error('프로필 이미지 업데이트 실패');
-        return;
-      }
-
-      onUpdateUser({ avatar: avatarUrl });
-      toast.success('프로필 이미지가 업데이트되었습니다');
+      // 로컬에서 이미지 처리 (FileReader 사용)
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const avatarUrl = reader.result as string;
+        onUpdateUser({ avatar: avatarUrl });
+        toast.success('프로필 이미지가 업데이트되었습니다');
+        setUploadingImage(false);
+      };
+      reader.onerror = () => {
+        toast.error('이미지 읽기 중 오류가 발생했습니다');
+        setUploadingImage(false);
+      };
+      reader.readAsDataURL(file);
     } catch (error) {
       console.error('Image upload error:', error);
       toast.error('이미지 업로드 중 오류가 발생했습니다');
-    } finally {
       setUploadingImage(false);
     }
   };
@@ -254,21 +181,10 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
   const loadNotificationSettings = async () => {
     try {
       setLoadingSettings(true);
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/notification-settings`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load notification settings');
-      }
-
-      const { settings } = await response.json();
-      if (settings) {
-        setNotificationSettings(settings);
+      // 로컬 스토리지에서 설정 불러오기
+      const savedSettings = localStorage.getItem('notificationSettings');
+      if (savedSettings) {
+        setNotificationSettings(JSON.parse(savedSettings));
       }
     } catch (error) {
       console.error('Load notification settings error:', error);
@@ -308,21 +224,10 @@ export function MyPage({ currentUser, currentTeam, accessToken, onUpdateUser, on
   const handleUpdateNotificationSettings = async (updates: Partial<typeof notificationSettings>) => {
     try {
       setLoadingSettings(true);
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3afd3c70/notification-settings`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updates),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update notification settings');
-      }
-
-      const { settings } = await response.json();
-      setNotificationSettings(settings);
+      // 로컬 스토리지에 저장
+      const newSettings = { ...notificationSettings, ...updates };
+      setNotificationSettings(newSettings);
+      localStorage.setItem('notificationSettings', JSON.stringify(newSettings));
       toast.success('알림 설정이 저장되었습니다');
     } catch (error) {
       console.error('Update notification settings error:', error);

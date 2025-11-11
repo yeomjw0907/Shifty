@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Users, Key, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
-import * as api from '../utils/api';
+// API removed - using local state only
 
 interface JoinTeamDialogProps {
   isOpen: boolean;
@@ -26,15 +26,17 @@ export function JoinTeamDialog({ isOpen, onClose, accessToken, onJoinSuccess }: 
     setError('');
 
     try {
-      const { data, error: joinError } = await api.joinTeam(inviteCode.trim().toUpperCase(), accessToken);
+      // 로컬에서 팀 찾기 (실제로는 백엔드 연동 필요)
+      const savedTeams = JSON.parse(localStorage.getItem('teams') || '[]');
+      const team = savedTeams.find((t: any) => t.inviteCode === inviteCode.trim().toUpperCase());
 
-      if (joinError || !data?.team) {
-        setError(joinError || '팀 참여에 실패했습니다');
+      if (!team) {
+        setError('초대 코드가 올바르지 않습니다');
         setLoading(false);
         return;
       }
 
-      onJoinSuccess(data.team);
+      onJoinSuccess(team);
       onClose();
     } catch (err) {
       console.error('Join team error:', err);

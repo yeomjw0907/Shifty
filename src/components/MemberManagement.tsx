@@ -8,7 +8,7 @@ import {
 import type { TeamMember } from '../App';
 import { AVATAR_COLORS, STORAGE_KEYS, FADE_IN, SCALE_IN } from '../utils/constants';
 import { formatTimestamp, getInitials } from '../utils/helpers';
-import { projectId } from '../utils/supabase/info';
+// Supabase removed - using local state only
 
 interface BoardPost {
   id: string;
