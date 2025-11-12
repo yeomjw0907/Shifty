@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS admin_popups (
   link_url TEXT,
   popup_type VARCHAR(20) DEFAULT 'info',  -- 'info', 'promotion', 'notice', 'event'
   target_audience VARCHAR(20) DEFAULT 'all',  -- 'all', 'new_users', 'specific_hospital'
-  target_hospital_id UUID REFERENCES hospitals(id) ON DELETE CASCADE,
+  target_hospital_id UUID,  -- hospitals 테이블이 생성된 후 외래 키 추가
   start_date DATE,
   end_date DATE,
   display_frequency VARCHAR(20) DEFAULT 'once',  -- 'once', 'daily', 'always'
@@ -55,6 +55,14 @@ CREATE INDEX IF NOT EXISTS idx_admin_popups_is_active ON admin_popups(is_active)
 CREATE INDEX IF NOT EXISTS idx_admin_popups_target_hospital_id ON admin_popups(target_hospital_id);
 CREATE INDEX IF NOT EXISTS idx_admin_popups_start_end_date ON admin_popups(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_admin_popups_priority ON admin_popups(priority DESC);
+
+-- hospitals 테이블이 생성된 후 외래 키 제약조건 추가
+-- 다음 SQL을 SETUP_HOSPITALS_TABLE.sql 실행 후 실행하세요:
+-- ALTER TABLE admin_popups 
+--   ADD CONSTRAINT fk_admin_popups_hospital 
+--   FOREIGN KEY (target_hospital_id) 
+--   REFERENCES hospitals(id) 
+--   ON DELETE CASCADE;
 
 -- 3. popup_interactions 테이블 (팝업 상호작용 기록)
 CREATE TABLE IF NOT EXISTS popup_interactions (

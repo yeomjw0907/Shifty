@@ -54,6 +54,9 @@ CREATE TRIGGER update_hospitals_updated_at
 -- RLS 활성화
 ALTER TABLE hospitals ENABLE ROW LEVEL SECURITY;
 
+-- 기존 정책 삭제 (중복 방지)
+DROP POLICY IF EXISTS "hospitals_select_policy" ON hospitals;
+
 -- 모든 사용자가 읽기 가능 (검색용)
 CREATE POLICY "hospitals_select_policy" ON hospitals
   FOR SELECT
@@ -76,6 +79,26 @@ INSERT INTO hospitals (name, name_kr, city, district, type) VALUES
   ('한양대학교병원', '한양대학교병원', '서울특별시', '성동구', '대학병원'),
   ('중앙대학교병원', '중앙대학교병원', '서울특별시', '동작구', '대학병원')
 ON CONFLICT DO NOTHING;
+
+-- ========================================
+-- 외래 키 제약조건 추가 (admin_popups 테이블이 있는 경우)
+-- ========================================
+
+-- admin_popups 테이블에 hospitals 외래 키 추가
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'admin_popups') THEN
+    -- 기존 제약조건이 있으면 삭제
+    ALTER TABLE admin_popups DROP CONSTRAINT IF EXISTS fk_admin_popups_hospital;
+    
+    -- 외래 키 제약조건 추가
+    ALTER TABLE admin_popups 
+      ADD CONSTRAINT fk_admin_popups_hospital 
+      FOREIGN KEY (target_hospital_id) 
+      REFERENCES hospitals(id) 
+      ON DELETE CASCADE;
+  END IF;
+END $$;
 
 -- ========================================
 -- 완료! 
